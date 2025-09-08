@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "419123520013",
+    "project_id": "thamizh-faf1a",
+    "storage_bucket": "thamizh-faf1a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:419123520013:android:4c068a451ce9cc21e72b44",
+        "android_client_info": {
+          "package_name": "com.thamizh.ewaste"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyARY240uL-hOdBlldD94j53M1Ll4KKaoo4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
