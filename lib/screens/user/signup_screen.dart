@@ -1,178 +1,114 @@
+// lib/screens/user/signup_screen.dart
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/auth_service.dart';
+import '../../routes/app_routes.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
-
   @override
   State<SignUpScreen> createState() => _SignUpScreenState();
 }
-
 class _SignUpScreenState extends State<SignUpScreen> {
-  final emailController = TextEditingController();
-  final passwordController = TextEditingController();
-  final confirmPasswordController = TextEditingController();
-  final nameController = TextEditingController();
-  final phoneController = TextEditingController();
-  bool isLoading = false;
+  final _auth = AuthService();
+  final _nameCtrl  = TextEditingController();
+  final _emailCtrl = TextEditingController();
+  final _passCtrl  = TextEditingController();
+  final _confCtrl  = TextEditingController();
+  bool _loading = false;
+  bool _obscure = true;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose(); _emailCtrl.dispose();
+    _passCtrl.dispose(); _confCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _register() async {
-    if (passwordController.text.trim() !=
-        confirmPasswordController.text.trim()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Passwords do not match.")),
-      );
-      return;
-    }
-
-    setState(() => isLoading = true);
-    try {
-      // ✅ Create Firebase Auth User
-      UserCredential userCredential =
-          await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: emailController.text.trim(),
-        password: passwordController.text.trim(),
-      );
-
-      final user = userCredential.user;
-      if (user != null) {
-        // ✅ Update Auth Profile (Name & Phone)
-        await user.updateDisplayName(nameController.text.trim());
-
-        // NOTE: Firebase Auth doesn't directly store phone number in email/password accounts.
-        // You can store it separately in Firestore.
-
-        // ✅ Save full profile to Firestore
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-          'name': nameController.text.trim(),
-          'phone': phoneController.text.trim(),
-          'email': user.email,
-          'createdAt': DateTime.now(),
-        });
-      }
-
-      Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
-    } on FirebaseAuthException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Signup failed: ${e.message}")),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Signup failed: Unexpected error $e.")),
-      );
-      print(e);
-    } finally {
-      setState(() => isLoading = false);
-    }
-  }
-
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    bool isObscure = false,
-    TextInputType inputType = TextInputType.text,
-  }) {
-    return TextField(
-      controller: controller,
-      obscureText: isObscure,
-      keyboardType: inputType,
-      decoration: InputDecoration(
-        filled: true,
-        fillColor: Colors.grey[100],
-        labelText: label,
-        prefixIcon: Icon(icon),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
-        ),
-      ),
+    if (_nameCtrl.text.trim().isEmpty) { _snack('Enter your name'); return; }
+    if (_emailCtrl.text.trim().isEmpty) { _snack('Enter your email'); return; }
+    if (_passCtrl.text.length < 6) { _snack('Password must be at least 6 characters'); return; }
+    if (_passCtrl.text != _confCtrl.text) { _snack('Passwords do not match'); return; }
+    setState(() => _loading = true);
+    final err = await _auth.registerUser(
+      email: _emailCtrl.text.trim(),
+      password: _passCtrl.text,
+      name: _nameCtrl.text.trim(),
     );
+    setState(() => _loading = false);
+    if (err == null) {
+      await _auth.navigateByRole(context);
+    } else {
+      _snack(err);
+    }
   }
+
+  void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 30.0, vertical: 16),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  "Thamizh - Sign Up",
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green[800],
-                  ),
-                ),
-                const SizedBox(height: 30),
-                _buildTextField(
-                  controller: nameController,
-                  label: 'Full Name',
-                  icon: Icons.person,
-                ),
-                const SizedBox(height: 20),
-                _buildTextField(
-                  controller: phoneController,
-                  label: 'Phone Number',
-                  icon: Icons.phone,
-                  inputType: TextInputType.phone,
-                ),
-                const SizedBox(height: 20),
-                _buildTextField(
-                  controller: emailController,
-                  label: 'Email',
-                  icon: Icons.email,
-                  inputType: TextInputType.emailAddress,
-                ),
-                const SizedBox(height: 20),
-                _buildTextField(
-                  controller: passwordController,
-                  label: 'Password',
-                  icon: Icons.lock,
-                  isObscure: true,
-                ),
-                const SizedBox(height: 20),
-                _buildTextField(
-                  controller: confirmPasswordController,
-                  label: 'Confirm Password',
-                  icon: Icons.lock_outline,
-                  isObscure: true,
-                ),
-                const SizedBox(height: 30),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: isLoading ? null : _register,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      backgroundColor: Colors.lightGreen[700],
-                    ),
-                    child: isLoading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text("Sign Up", style: TextStyle(fontSize: 18)),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pushNamed(context, '/login');
-                  },
-                  child: const Text("Already have an account? Login"),
-                ),
-              ],
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        title: const Text('Create Account'),
+        backgroundColor: Colors.green[700],
+        foregroundColor: Colors.white,
+      ),
+      body: SafeArea(child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(children: [
+          const SizedBox(height: 16),
+          Icon(Icons.person_add, size: 56, color: Colors.green[700]),
+          const SizedBox(height: 24),
+          _field(_nameCtrl,  'Full Name',     Icons.person),
+          const SizedBox(height: 14),
+          _field(_emailCtrl, 'Email',         Icons.email, type: TextInputType.emailAddress),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _passCtrl,
+            obscureText: _obscure,
+            decoration: InputDecoration(
+              labelText: 'Password',
+              prefixIcon: const Icon(Icons.lock),
+              suffixIcon: IconButton(
+                icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                onPressed: () => setState(() => _obscure = !_obscure),
+              ),
+              border: const OutlineInputBorder(),
+              filled: true, fillColor: Colors.white,
             ),
           ),
-        ),
-      ),
+          const SizedBox(height: 14),
+          _field(_confCtrl, 'Confirm Password', Icons.lock_outline, obscure: true),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: _loading ? null : _register,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green[700], foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 50),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: _loading
+                ? const CircularProgressIndicator(color: Colors.white)
+                : const Text('Create Account', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(height: 14),
+          TextButton(
+            onPressed: () => Navigator.pushReplacementNamed(context, AppRoutes.login),
+            child: Text('Already have an account? Login', style: TextStyle(color: Colors.green[700])),
+          ),
+        ]),
+      )),
     );
   }
+
+  Widget _field(TextEditingController c, String label, IconData icon,
+      {TextInputType type = TextInputType.text, bool obscure = false}) =>
+      TextField(
+        controller: c, keyboardType: type, obscureText: obscure,
+        decoration: InputDecoration(
+          labelText: label, prefixIcon: Icon(icon),
+          border: const OutlineInputBorder(), filled: true, fillColor: Colors.white,
+        ),
+      );
 }

@@ -1,40 +1,60 @@
-name: thamizh
-description: A new Flutter project.
+name: ecomeel
+description: "Ecomeel - E-Waste Recycling & Pickup Service."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.1+2
 
-environment:  
-  sdk: ^3.0.0
+environment:
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
 
-  # 🔥 Firebase Dependencies
+  # UI
+  cupertino_icons: ^1.0.6
+  shimmer: ^3.0.0
+  cached_network_image: ^3.4.1
+  carousel_slider: ^5.1.1
+
+  # Auth & Biometrics
+  local_auth: ^2.3.0
+  google_sign_in: ^6.2.1
+
+  # Firebase
   firebase_core: ^3.15.1
   firebase_auth: ^5.6.2
   cloud_firestore: ^5.6.11
   firebase_messaging: ^15.2.9
   firebase_storage: ^12.4.9
 
-  # 📍 Location and Map
-  geolocator: ^11.0.0
-  google_maps_flutter: ^2.6.0
-  geocoding: ^3.0.0
-  location: ^6.0.2        # 👈 NEW: For real-time location tracking
-  flutter_polyline_points: ^2.0.0 # 👈 NEW: To draw path on maps
+  # Supabase
+  supabase_flutter: ^2.8.4
 
-  # 🌍 Internationalization
+  # Location & Maps
+  geolocator: ^13.0.2
+  geocoding: ^3.0.0
+  google_maps_flutter: ^2.10.0
+  flutter_polyline_points: ^2.1.0
+
+  # Image & Media
+  image_picker: ^1.1.2
+  # flutter_image_compress removed — was version 1.1.3 which breaks AGP 8
+  # use image_picker with readAsBytes() instead — already done in our code
+
+  # Utilities
+  url_launcher: ^6.3.1
+  provider: ^6.1.2
+  shared_preferences: ^2.3.2
+
+  # Localization
+  flutter_localizations:
+    sdk: flutter
   intl: ^0.20.2
 
-  # 📦 Useful Plugins
-  url_launcher: ^6.3.1
-  image_picker: ^1.1.2
-  carousel_slider: ^5.1.1
-
-  # 🧭 State Management & Admin Panel (Optional)
-  provider: ^6.1.2         # 👈 Optional, if using state management
+  # PDF & Certificates
+  pdf: ^3.11.1
+  printing: ^5.14.0
 
 dev_dependencies:
   flutter_test:
@@ -43,19 +63,14 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  generate: true
 
   assets:
-    - assets/images/THAMIZH-01.jpg
-    - assets/images/THAMIZH-02.jpg
-    - assets/images/THAMIZH-03.jpg
-    - assets/images/THAMIZH-03B.jpg
-    - assets/images/THAMIZH-04.jpg
-
-  #fonts:
-   # - family: NotoSans
-    #  fonts:
-     #   - asset: assets/fonts/NotoSans-Regular.ttf
-
-    #- family: NotoSansTamil
-     # fonts:
-     # - asset: assets/fonts/NotoSansTamil-Regular.ttf
+    - assets/images/THAMIZH-01.png
+    - assets/images/THAMIZH-02.png
+    - assets/images/THAMIZH-03.png
+    - assets/images/THAMIZH-04.png
+    - assets/images/logo.jpg
+    - assets/images/thamizh_ewaste_page1_img1.jpg
+    - assets/images/thamizh_ewaste_page2_img2.jpg
+    - assets/images/thamizh_ewaste_page3_img3.jpg

@@ -1,98 +1,147 @@
+// lib/screens/admin/admin_info_post_screen.dart
+//
+// Lets admins post announcements / awareness posts.
+// Writes to Firestore: admin_posts/{id}
+
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AdminInfoPostScreen extends StatefulWidget {
   const AdminInfoPostScreen({super.key});
 
   @override
-  _AdminInfoPostScreenState createState() => _AdminInfoPostScreenState();
+  State<AdminInfoPostScreen> createState() => _AdminInfoPostScreenState();
 }
 
 class _AdminInfoPostScreenState extends State<AdminInfoPostScreen> {
-  final TextEditingController titleController = TextEditingController();
-  final TextEditingController descController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
 
-  List<Map<String, String>> posts = [
-    {
-      'title': 'Why not to burn e-waste?',
-      'desc':
-          'Burning e-waste releases toxic fumes and heavy metals. Always recycle responsibly.'
-    },
-    {
-      'title': 'Free pickup on Sundays',
-      'desc':
-          'We offer free home pickup of e-waste on the first Sunday of every month.'
-    },
-  ];
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _bodyController = TextEditingController();
+  final TextEditingController _imageUrlController = TextEditingController();
 
-  void addPost() {
-    if (titleController.text.isEmpty || descController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Please enter both title and description")),
-      );
-      return;
-    }
+  bool _isSubmitting = false;
 
-    setState(() {
-      posts.insert(0, {
-        'title': titleController.text,
-        'desc': descController.text,
-      });
-      titleController.clear();
-      descController.clear();
-    });
-
-    // TODO: Save to Firestore
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Post added successfully")),
-    );
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _bodyController.dispose();
+    _imageUrlController.dispose();
+    super.dispose();
   }
+
+  /// ------------------------------------------------------
+  /// SAVE POST → Firestore /admin_posts
+  /// ------------------------------------------------------
+  Future<void> _submitPost() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isSubmitting = true);
+
+    try {
+      await FirebaseFirestore.instance.collection('admin_posts').add({
+        'title': _titleController.text.trim(),
+        'body': _bodyController.text.trim(),
+        'imageUrl': _imageUrlController.text.trim().isEmpty
+            ? null
+            : _imageUrlController.text.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Post uploaded successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed to upload post: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  /// ------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Post Info / Awareness")),
-      body: Padding(
+      appBar: AppBar(title: const Text("Create Awareness Post")),
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: titleController,
-              decoration: InputDecoration(labelText: "Post Title"),
-            ),
-            SizedBox(height: 10),
-            TextField(
-              controller: descController,
-              maxLines: 4,
-              decoration: InputDecoration(labelText: "Description"),
-            ),
-            SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: addPost,
-              icon: Icon(Icons.post_add),
-              label: Text("Post"),
-            ),
-            SizedBox(height: 20),
-            Divider(),
-            Expanded(
-              child: posts.isEmpty
-                  ? Center(child: Text("No posts yet"))
-                  : ListView.builder(
-                      itemCount: posts.length,
-                      itemBuilder: (context, index) {
-                        final post = posts[index];
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          child: ListTile(
-                            title: Text(post['title']!),
-                            subtitle: Text(post['desc']!),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
+        child: Form(
+          key: _formKey,
+          child: Column(
+            children: [
+              // Title
+              TextFormField(
+                controller: _titleController,
+                decoration: const InputDecoration(
+                  labelText: "Post Title",
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) {
+                    return "Title is required";
+                  }
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              // Body
+              TextFormField(
+                controller: _bodyController,
+                maxLines: 6,
+                decoration: const InputDecoration(
+                  labelText: "Post Description",
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) {
+                    return "Description is required";
+                  }
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              // Optional Image URL
+              TextFormField(
+                controller: _imageUrlController,
+                decoration: const InputDecoration(
+                  labelText: "Image URL (optional)",
+                  border: OutlineInputBorder(),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Submit Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _submitPost,
+                  child: _isSubmitting
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("Publish Post"),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
