@@ -2,10 +2,10 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import '../../services/cloudinary_service.dart';
 
 class BannersTab extends StatefulWidget {
   const BannersTab({super.key});
@@ -45,16 +45,15 @@ class _BannersTabState extends State<BannersTab> {
 
     setState(() => _uploading = true);
     try {
-      final fileName =
-          'banners/${DateTime.now().millisecondsSinceEpoch}_${picked.name}';
-      final ref = FirebaseStorage.instance.ref().child(fileName);
-
       final bytes = await picked.readAsBytes();
-      await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      final url = await CloudinaryService.uploadImage(bytes, folder: 'ecomeel/banners');
 
-      final url = await ref.getDownloadURL();
+      if (url == null) {
+        _showSnack("Upload failed: could not reach Cloudinary");
+        return;
+      }
+
       await _saveBannerDoc(url);
-
       _showSnack("✅ Banner uploaded");
     } catch (e) {
       _showSnack("Upload failed: $e");
@@ -68,30 +67,32 @@ class _BannersTabState extends State<BannersTab> {
     setState(() => _uploading = true);
     try {
       for (final assetPath in defaultBanners) {
-        final fileName =
-            "banners/default_${assetPath.split('/').last}"; // e.g. default_banner1.jpg
-        final ref = FirebaseStorage.instance.ref().child(fileName);
+        final assetName = assetPath.split('/').last; // e.g. banner1.jpg
 
-        // If file already exists in storage skip uploading (safe-check)
-        bool alreadyExists = false;
-        try {
-          await ref.getDownloadURL();
-          alreadyExists = true;
-        } catch (_) {
-          alreadyExists = false;
-        }
+        // Dedup check against Firestore instead of storage, since
+        // Cloudinary doesn't give us a cheap "does this exist" lookup.
+        final existing = await FirebaseFirestore.instance
+            .collection('banners')
+            .where('sourceAsset', isEqualTo: assetName)
+            .limit(1)
+            .get();
 
-        if (alreadyExists) {
-          _showSnack("Already uploaded: ${assetPath.split('/').last}");
-          continue; // skip if already uploaded
+        if (existing.docs.isNotEmpty) {
+          _showSnack("Already uploaded: $assetName");
+          continue;
         }
 
         final byteData = await rootBundle.load(assetPath);
         final Uint8List bytes = byteData.buffer.asUint8List();
-        await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
-        final url = await ref.getDownloadURL();
-        await _saveBannerDoc(url);
-        _showSnack("Uploaded: ${assetPath.split('/').last}");
+        final url = await CloudinaryService.uploadImage(bytes, folder: 'ecomeel/banners');
+
+        if (url == null) {
+          _showSnack("Upload failed for $assetName");
+          continue;
+        }
+
+        await _saveBannerDoc(url, sourceAsset: assetName);
+        _showSnack("Uploaded: $assetName");
       }
     } catch (e) {
       _showSnack("Default upload failed: $e");
@@ -101,7 +102,7 @@ class _BannersTabState extends State<BannersTab> {
   }
 
   /// Save Firestore banner doc with order
-  Future<void> _saveBannerDoc(String url) async {
+  Future<void> _saveBannerDoc(String url, {String? sourceAsset}) async {
     int newOrder = 0;
     final q = await FirebaseFirestore.instance
         .collection('banners')
@@ -115,6 +116,7 @@ class _BannersTabState extends State<BannersTab> {
       'imageUrl': url,
       'order': newOrder,
       'createdAt': FieldValue.serverTimestamp(),
+      if (sourceAsset != null) 'sourceAsset': sourceAsset,
     });
   }
 

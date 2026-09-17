@@ -1,4 +1,5 @@
 // lib/screens/user/dropoff_points_screen.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
@@ -9,8 +10,8 @@ import 'package:url_launcher/url_launcher.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
-const double _kRadiusKm    = 50.0;  // show only within this radius
-const double _kNearbyKm    = 5.0;   // "very close" badge threshold
+const double _kRadiusKm = 50.0; // show only within this radius
+const double _kNearbyKm = 5.0; // "very close" badge threshold
 
 class DropoffPointsScreen extends StatefulWidget {
   const DropoffPointsScreen({super.key});
@@ -22,7 +23,6 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
   Position? _userPos;
   bool _locating = true;
 
-  // radius slider value (user can expand search)
   double _radiusKm = _kRadiusKm;
 
   @override
@@ -31,7 +31,8 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
     _getUserLocation();
   }
 
-  // ── Full permission-safe location fetch ───────────────────────────────────
+  // ── Full permission-safe location fetch — now with a timeout so it can
+  // never spin forever, whether GPS is unavailable, slow, or denied ────────
   Future<void> _getUserLocation() async {
     setState(() => _locating = true);
     try {
@@ -49,13 +50,24 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
       }
       if (perm == LocationPermission.denied ||
           perm == LocationPermission.deniedForever) {
-        _snack('Location permission denied — distances will not be shown.');
+        _snack('Location permission denied — showing all locations instead.');
         if (mounted) setState(() => _locating = false);
         return;
       }
       final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
-      if (mounted) setState(() { _userPos = pos; _locating = false; });
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
+      );
+      if (mounted) {
+        setState(() {
+          _userPos = pos;
+          _locating = false;
+        });
+      }
+    } on TimeoutException {
+      _snack(
+          'Could not get your location in time — showing all locations instead.');
+      if (mounted) setState(() => _locating = false);
     } catch (e) {
       debugPrint('Location error: $e');
       if (mounted) setState(() => _locating = false);
@@ -96,8 +108,8 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
   }
 
   Future<void> _mapCoords(double lat, double lng, String label) async {
-    final uri = Uri.parse(
-        'https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+    final uri =
+        Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
     await launchUrl(uri,
         mode: kIsWeb
             ? LaunchMode.platformDefault
@@ -118,8 +130,9 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
 
   void _snack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -128,29 +141,32 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: const Color(0xFFF6F8F6),
       appBar: AppBar(
         title: const Text('Drop-Off Points'),
         backgroundColor: Colors.green[700],
         foregroundColor: Colors.white,
+        elevation: 0,
         actions: [
           IconButton(
             tooltip: 'Refresh location',
             icon: _locating
                 ? const SizedBox(
-                    width: 20, height: 20,
+                    width: 20,
+                    height: 20,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
+                        strokeWidth: 2, color: Colors.white),
+                  )
                 : Icon(
-                    _userPos != null
-                        ? Icons.my_location
-                        : Icons.location_off,
-                    color: Colors.white),
+                    _userPos != null ? Icons.my_location : Icons.location_off,
+                    color: Colors.white,
+                  ),
             onPressed: _locating ? null : _getUserLocation,
           ),
         ],
       ),
       body: RefreshIndicator(
+        color: Colors.green[700],
         onRefresh: () async => _getUserLocation(),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -158,24 +174,15 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Location banner ─────────────────────────────────────────
               _locationBanner(),
-
-              // ── Radius control (only when GPS is on) ────────────────────
               if (!_locating && _userPos != null) _radiusControl(),
-
-              const SizedBox(height: 4),
-
-              // ── Vendors ──────────────────────────────────────────────────
+              const SizedBox(height: 6),
               _sectionHead(Icons.store_mall_directory_outlined,
-                  'Registered Vendors',
-                  'Approved recycling partners near you'),
+                  'Registered Vendors', 'Approved recycling partners near you'),
               _buildVendors(),
-
-              const SizedBox(height: 12),
-
-              // ── Admin drop-off points ─────────────────────────────────────
-              _sectionHead(Icons.location_on_outlined,
+              const SizedBox(height: 16),
+              _sectionHead(
+                  Icons.location_on_outlined,
                   'Designated Drop-off Points',
                   'Fixed collection points added by our team'),
               _buildDropoffs(),
@@ -193,28 +200,31 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
           Icons.location_searching, 'Getting your location…');
     }
     if (_userPos == null) {
-      return _banner(Colors.orange[50]!, Colors.orange[700]!,
+      return _banner(
+          Colors.orange[50]!,
+          Colors.orange[700]!,
           Icons.location_off,
-          'Location unavailable — distances hidden. Tap ⟳ to retry.');
+          'Location unavailable — showing everything. Tap ⟳ to retry.');
     }
     return _banner(Colors.green[50]!, Colors.green[700]!, Icons.my_location,
         'Showing places within ${_radiusKm.toStringAsFixed(0)} km of you, sorted by distance.');
   }
 
-  Widget _banner(Color bg, Color fg, IconData icon, String msg) =>
-      Container(
-        margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+  Widget _banner(Color bg, Color fg, IconData icon, String msg) => Container(
+        margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: bg,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: fg.withOpacity(0.3)),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: fg.withValues(alpha: 0.25)),
         ),
         child: Row(children: [
           Icon(icon, color: fg, size: 18),
           const SizedBox(width: 10),
           Expanded(
-              child: Text(msg, style: TextStyle(fontSize: 13, color: fg))),
+            child: Text(msg,
+                style: TextStyle(fontSize: 13, color: fg, height: 1.3)),
+          ),
         ]),
       );
 
@@ -222,16 +232,22 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
   Widget _radiusControl() {
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 6,
+              offset: const Offset(0, 2)),
+        ],
       ),
       child: Row(children: [
         Icon(Icons.radar, color: Colors.green[700], size: 18),
         const SizedBox(width: 8),
-        Text('Search radius: ',
+        Text('Radius: ',
             style: TextStyle(fontSize: 13, color: Colors.grey[700])),
         Text('${_radiusKm.toStringAsFixed(0)} km',
             style: TextStyle(
@@ -245,6 +261,7 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
             max: 200,
             divisions: 39,
             activeColor: Colors.green[700],
+            inactiveColor: Colors.green[100],
             onChanged: (v) => setState(() => _radiusKm = v),
           ),
         ),
@@ -253,22 +270,37 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
   }
 
   Widget _sectionHead(IconData icon, String title, String sub) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Icon(icon, color: Colors.green[700], size: 22),
-      const SizedBox(width: 10),
-      Expanded(child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: TextStyle(
-              fontSize: 16, fontWeight: FontWeight.bold,
-              color: Colors.grey[800])),
-          const SizedBox(height: 2),
-          Text(sub, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-        ],
-      )),
-    ]),
-  );
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: Colors.green[700], size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey[850])),
+                  const SizedBox(height: 2),
+                  Text(sub,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
 
   // ── Vendors list ───────────────────────────────────────────────────────────
   Widget _buildVendors() {
@@ -279,43 +311,40 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
           .snapshots(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Padding(padding: EdgeInsets.all(20),
-              child: Center(child: CircularProgressIndicator()));
+          return const Padding(
+            padding: EdgeInsets.all(20),
+            child: Center(child: CircularProgressIndicator()),
+          );
         }
         if (snap.hasError) {
-          return _emptyMsg('Could not load vendors.');
+          return _emptyMsg('Could not load vendors — check your connection.',
+              isError: true);
         }
 
         final all = snap.data?.docs ?? [];
-
-        // ── Filter & sort ─────────────────────────────────────────────────
-        final withDist = all.map((d) {
-          final data = d.data() as Map<String, dynamic>;
-          return _Located(doc: d, data: data,
-              km: _km(data['latitude'], data['longitude']));
-        }).toList()
-          ..sort((a, b) => a.km.compareTo(b.km));
-
-        // Within radius
-        final nearby = withDist.where((e) => e.km <= _radiusKm).toList();
-        // Outside radius but still have coords (show as fallback if nearby empty)
-        final outside = withDist.where((e) =>
-            e.km > _radiusKm && e.km != double.maxFinite).toList();
-        // No coords at all
-        final noCoords = withDist.where((e) =>
-            e.km == double.maxFinite).toList();
-
         if (all.isEmpty) {
           return _emptyMsg('No approved vendors yet.');
         }
 
+        final withDist = all.map((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return _Located(
+              doc: d, data: data, km: _km(data['latitude'], data['longitude']));
+        }).toList()
+          ..sort((a, b) => a.km.compareTo(b.km));
+
+        final nearby = withDist.where((e) => e.km <= _radiusKm).toList();
+        final outside = withDist
+            .where((e) => e.km > _radiusKm && e.km != double.maxFinite)
+            .toList();
+        final noCoords =
+            withDist.where((e) => e.km == double.maxFinite).toList();
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (nearby.isEmpty && _userPos != null) ...[
+            if (nearby.isEmpty && _userPos != null)
               _noneNearbyBanner('vendor', outside),
-            ],
-            // Show nearby first
             ListView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
@@ -323,7 +352,6 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
               itemCount: nearby.length,
               itemBuilder: (_, i) => _vendorCard(nearby[i]),
             ),
-            // If no GPS, show all
             if (_userPos == null)
               ListView.builder(
                 shrinkWrap: true,
@@ -332,13 +360,8 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
                 itemCount: withDist.length,
                 itemBuilder: (_, i) => _vendorCard(withDist[i]),
               ),
-            // Show no-coords vendors at the bottom always
             if (noCoords.isNotEmpty && _userPos != null) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Text('Other vendors (no location data)',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-              ),
+              _subLabel('Other vendors (no location data)'),
               ListView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -362,26 +385,33 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
           .snapshots(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Padding(padding: EdgeInsets.all(20),
-              child: Center(child: CircularProgressIndicator()));
+          return const Padding(
+            padding: EdgeInsets.all(20),
+            child: Center(child: CircularProgressIndicator()),
+          );
         }
-        if (snap.hasError) return _emptyMsg('Could not load drop-off points.');
+        if (snap.hasError) {
+          return _emptyMsg(
+              'Could not load drop-off points — check your connection.',
+              isError: true);
+        }
 
         final all = snap.data?.docs ?? [];
         if (all.isEmpty) return _emptyMsg('No drop-off points added yet.');
 
         final withDist = all.map((d) {
           final data = d.data() as Map<String, dynamic>;
-          return _Located(doc: d, data: data,
-              km: _km(data['latitude'], data['longitude']));
+          return _Located(
+              doc: d, data: data, km: _km(data['latitude'], data['longitude']));
         }).toList()
           ..sort((a, b) => a.km.compareTo(b.km));
 
-        final nearby  = withDist.where((e) => e.km <= _radiusKm).toList();
-        final outside = withDist.where((e) =>
-            e.km > _radiusKm && e.km != double.maxFinite).toList();
-        final noCoords = withDist.where((e) =>
-            e.km == double.maxFinite).toList();
+        final nearby = withDist.where((e) => e.km <= _radiusKm).toList();
+        final outside = withDist
+            .where((e) => e.km > _radiusKm && e.km != double.maxFinite)
+            .toList();
+        final noCoords =
+            withDist.where((e) => e.km == double.maxFinite).toList();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -404,11 +434,7 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
                 itemBuilder: (_, i) => _dropoffCard(withDist[i]),
               ),
             if (noCoords.isNotEmpty && _userPos != null) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Text('Other drop-off points (no location data)',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-              ),
+              _subLabel('Other drop-off points (no location data)'),
               ListView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -423,6 +449,15 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
     );
   }
 
+  Widget _subLabel(String text) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+        child: Text(text,
+            style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[500],
+                fontWeight: FontWeight.w600)),
+      );
+
   // ── "None nearby" banner with closest suggestion ──────────────────────────
   Widget _noneNearbyBanner(String type, List<_Located> outside) {
     return Container(
@@ -430,7 +465,7 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.amber[50],
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.amber.shade300),
       ),
       child: Column(
@@ -439,22 +474,23 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
           Row(children: [
             Icon(Icons.search_off, color: Colors.amber[700], size: 18),
             const SizedBox(width: 8),
-            Expanded(child: Text(
-              'No $type within ${_radiusKm.toStringAsFixed(0)} km.',
-              style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.amber[800], fontSize: 13),
-            )),
+            Expanded(
+              child: Text(
+                'No $type within ${_radiusKm.toStringAsFixed(0)} km.',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.amber[800],
+                    fontSize: 13),
+              ),
+            ),
           ]),
           if (outside.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
-              'Nearest is ${_distLabel(outside.first.km)} away — '
-              'drag the radius slider above to include it.',
+              'Nearest is ${_distLabel(outside.first.km)} away — drag the radius slider above to include it.',
               style: TextStyle(fontSize: 12, color: Colors.amber[700]),
             ),
             const SizedBox(height: 8),
-            // Show the single nearest as a preview card
             _nearestPreview(outside.first, type == 'vendor'),
           ] else ...[
             const SizedBox(height: 4),
@@ -466,7 +502,6 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
     );
   }
 
-  // ── Compact preview of the nearest out-of-range item ─────────────────────
   Widget _nearestPreview(_Located loc, bool isVendor) {
     final name = isVendor
         ? (loc.data['shopName'] ?? 'Vendor').toString()
@@ -486,25 +521,29 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
         Icon(isVendor ? Icons.store : Icons.location_on,
             color: Colors.amber[600], size: 18),
         const SizedBox(width: 8),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(name, style: const TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 13)),
-            if (address.isNotEmpty)
-              Text(address, style: TextStyle(
-                  fontSize: 12, color: Colors.grey[600])),
-            Text(_distLabel(loc.km),
-                style: TextStyle(
-                    fontSize: 12, color: Colors.amber[700],
-                    fontWeight: FontWeight.w600)),
-          ],
-        )),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 13)),
+              if (address.isNotEmpty)
+                Text(address,
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              Text(_distLabel(loc.km),
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.amber[700],
+                      fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
         TextButton(
           onPressed: () {
             if (lat != null && lng != null) {
-              _mapCoords((lat as num).toDouble(),
-                  (lng as num).toDouble(), name);
+              _mapCoords(
+                  (lat as num).toDouble(), (lng as num).toDouble(), name);
             } else {
               _mapAddress(address);
             }
@@ -517,16 +556,16 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
 
   // ── Vendor card ────────────────────────────────────────────────────────────
   Widget _vendorCard(_Located loc) {
-    final data    = loc.data;
-    final name    = (data['shopName'] ?? 'Vendor').toString();
-    final address = (data['address']  ?? '').toString();
-    final area    = (data['serviceArea'] ?? '').toString();
-    final phone   = (data['phone']    ?? '').toString();
-    final lat     = data['latitude'];
-    final lng     = data['longitude'];
-    final hasCoords = lat != null && lng != null &&
-        (lat as num) != 0 && (lng as num) != 0;
-    final dist    = loc.km;
+    final data = loc.data;
+    final name = (data['shopName'] ?? 'Vendor').toString();
+    final address = (data['address'] ?? '').toString();
+    final area = (data['serviceArea'] ?? '').toString();
+    final phone = (data['phone'] ?? data['contact'] ?? '').toString();
+    final lat = data['latitude'];
+    final lng = data['longitude'];
+    final hasCoords =
+        lat != null && lng != null && (lat as num) != 0 && (lng as num) != 0;
+    final dist = loc.km;
     final isVeryClose = dist < _kNearbyKm && dist != double.maxFinite;
 
     return _locationCard(
@@ -539,31 +578,32 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
       isVeryClose: isVeryClose,
       phone: phone,
       onMap: hasCoords
-          ? () => _mapCoords((lat as num).toDouble(),
-              (lng as num).toDouble(), name)
-          : address.isNotEmpty ? () => _mapAddress(address) : null,
+          ? () =>
+              _mapCoords((lat as num).toDouble(), (lng as num).toDouble(), name)
+          : address.isNotEmpty
+              ? () => _mapAddress(address)
+              : null,
       hasRealCoords: hasCoords,
     );
   }
 
   // ── Drop-off card ──────────────────────────────────────────────────────────
   Widget _dropoffCard(_Located loc) {
-    final data    = loc.data;
-    final area    = (data['area']    ?? 'Drop-off Point').toString();
+    final data = loc.data;
+    final area = (data['area'] ?? 'Drop-off Point').toString();
     final address = (data['address'] ?? '').toString();
-    final phone   = (data['contact'] ?? '').toString();
-    final lat     = data['latitude'];
-    final lng     = data['longitude'];
-    final hasCoords = lat != null && lng != null &&
-        (lat as num) != 0 && (lng as num) != 0;
-    final dist    = loc.km;
+    final phone = (data['contact'] ?? '').toString();
+    final lat = data['latitude'];
+    final lng = data['longitude'];
+    final hasCoords =
+        lat != null && lng != null && (lat as num) != 0 && (lng as num) != 0;
+    final dist = loc.km;
     final isVeryClose = dist < _kNearbyKm && dist != double.maxFinite;
 
-    // Show coords if available
     String? coordStr;
     if (hasCoords) {
-      coordStr = '${(lat as num).toStringAsFixed(5)}, '
-          '${(lng as num).toStringAsFixed(5)}';
+      coordStr =
+          '${(lat as num).toStringAsFixed(5)}, ${(lng as num).toStringAsFixed(5)}';
     }
 
     return _locationCard(
@@ -576,9 +616,11 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
       isVeryClose: isVeryClose,
       phone: phone,
       onMap: hasCoords
-          ? () => _mapCoords((lat as num).toDouble(),
-              (lng as num).toDouble(), area)
-          : address.isNotEmpty ? () => _mapAddress(address) : null,
+          ? () =>
+              _mapCoords((lat as num).toDouble(), (lng as num).toDouble(), area)
+          : address.isNotEmpty
+              ? () => _mapAddress(address)
+              : null,
       hasRealCoords: hasCoords,
     );
   }
@@ -586,48 +628,56 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
   // ── Shared card widget ─────────────────────────────────────────────────────
   Widget _locationCard({
     required IconData icon,
-    required Color    iconColor,
-    required String   title,
-    required String   subtitle,
-    String?           extra,
-    required double   distKm,
-    required bool     isVeryClose,
-    required String   phone,
-    VoidCallback?     onMap,
-    required bool     hasRealCoords,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    String? extra,
+    required double distKm,
+    required bool isVeryClose,
+    required String phone,
+    VoidCallback? onMap,
+    required bool hasRealCoords,
   }) {
     final distStr = _distLabel(distKm);
 
-    return Card(
+    return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 3)),
+        ],
+        border: isVeryClose ? Border.all(color: Colors.green.shade200) : null,
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Header row ────────────────────────────────────────────────
             Row(children: [
               Container(
-                padding: const EdgeInsets.all(7),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                    color: iconColor.withOpacity(0.1),
+                    color: iconColor.withValues(alpha: 0.1),
                     shape: BoxShape.circle),
                 child: Icon(icon, color: iconColor, size: 18),
               ),
               const SizedBox(width: 10),
-              Expanded(child: Text(title, style: const TextStyle(
-                  fontWeight: FontWeight.bold, fontSize: 15))),
-              // Distance badge
+              Expanded(
+                child: Text(title,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 15)),
+              ),
               if (distStr.isNotEmpty)
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: isVeryClose
-                        ? Colors.green[100]
-                        : Colors.grey[100],
+                    color: isVeryClose ? Colors.green[100] : Colors.grey[100],
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                         color: isVeryClose
@@ -651,38 +701,36 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
                   ]),
                 ),
             ]),
-
-            // ── Details ───────────────────────────────────────────────────
             if (subtitle.isNotEmpty) ...[
               const SizedBox(height: 6),
               Row(children: [
                 const SizedBox(width: 34),
-                Icon(Icons.place_outlined,
-                    size: 13, color: Colors.grey[400]),
+                Icon(Icons.place_outlined, size: 13, color: Colors.grey[400]),
                 const SizedBox(width: 4),
-                Expanded(child: Text(subtitle,
-                    style: TextStyle(fontSize: 13, color: Colors.grey[700]))),
+                Expanded(
+                  child: Text(subtitle,
+                      style: TextStyle(fontSize: 13, color: Colors.grey[700])),
+                ),
               ]),
             ],
             if (extra != null) ...[
               const SizedBox(height: 4),
               Row(children: [
                 const SizedBox(width: 34),
-                Expanded(child: Text(extra,
-                    style: TextStyle(fontSize: 11,
-                        color: Colors.grey[500],
-                        fontFamily: extra.startsWith('📍')
-                            ? 'monospace' : null))),
+                Expanded(
+                  child: Text(extra,
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[500],
+                          fontFamily:
+                              extra.startsWith('📍') ? 'monospace' : null)),
+                ),
               ]),
             ],
-
             const SizedBox(height: 10),
-
-            // ── Action buttons ────────────────────────────────────────────
             Row(children: [
               if (phone.isNotEmpty) ...[
-                _btn(Icons.phone, 'Call', Colors.green,
-                    () => _call(phone)),
+                _btn(Icons.phone, 'Call', Colors.green, () => _call(phone)),
                 const SizedBox(width: 8),
               ],
               if (onMap != null)
@@ -705,30 +753,40 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
         icon: Icon(icon, size: 15, color: color),
         label: Text(label, style: TextStyle(fontSize: 12, color: color)),
         style: OutlinedButton.styleFrom(
-          side: BorderSide(color: color.withOpacity(0.5)),
+          side: BorderSide(color: color.withValues(alpha: 0.5)),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           minimumSize: Size.zero,
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
 
-  Widget _emptyMsg(String msg) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-    child: Row(children: [
-      Icon(Icons.info_outline, color: Colors.grey[400], size: 16),
-      const SizedBox(width: 8),
-      Expanded(child: Text(msg,
-          style: TextStyle(color: Colors.grey[500], fontSize: 13))),
-    ]),
-  );
+  Widget _emptyMsg(String msg, {bool isError = false}) => Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(children: [
+          Icon(isError ? Icons.error_outline : Icons.info_outline,
+              color: isError ? Colors.red[300] : Colors.grey[400], size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(msg,
+                style: TextStyle(
+                    color: isError ? Colors.red[400] : Colors.grey[500],
+                    fontSize: 13)),
+          ),
+        ]),
+      );
 }
 
 // ── Simple data holder ─────────────────────────────────────────────────────
 class _Located {
-  final DocumentSnapshot       doc;
-  final Map<String, dynamic>   data;
-  final double                 km;
+  final DocumentSnapshot doc;
+  final Map<String, dynamic> data;
+  final double km;
   const _Located({required this.doc, required this.data, required this.km});
 }

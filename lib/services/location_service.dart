@@ -1,4 +1,5 @@
 // lib/services/location_service.dart
+import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
@@ -28,25 +29,29 @@ class LocationService {
   }
 
   /// Captures GPS position + reverse geocoded address.
-  /// Returns a map:
-  /// { latitude, longitude, readable, mapLink }
+  /// Returns a map: { latitude, longitude, readable, mapLink }
+  /// Returns null on failure/timeout instead of hanging forever.
   Future<Map<String, dynamic>?> captureLocation() async {
     try {
       final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.best,
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
       );
 
       String readable = '';
       if (!kIsWeb) {
         try {
           final marks =
-              await placemarkFromCoordinates(pos.latitude, pos.longitude);
+              await placemarkFromCoordinates(pos.latitude, pos.longitude)
+                  .timeout(const Duration(seconds: 8));
           if (marks.isNotEmpty) {
             final p = marks.first;
-            readable =
-                [p.name, p.locality, p.subAdministrativeArea, p.administrativeArea]
-                    .where((s) => s != null && s.isNotEmpty)
-                    .join(', ');
+            readable = [
+              p.name,
+              p.locality,
+              p.subAdministrativeArea,
+              p.administrativeArea
+            ].where((s) => s != null && s.isNotEmpty).join(', ');
           }
         } catch (_) {
           // Geocoding may fail on emulators/web — use coordinates
@@ -67,6 +72,8 @@ class LocationService {
         'mapLink':
             'https://www.google.com/maps/search/?api=1&query=${pos.latitude},${pos.longitude}',
       };
+    } on TimeoutException {
+      return null;
     } catch (e) {
       return null;
     }

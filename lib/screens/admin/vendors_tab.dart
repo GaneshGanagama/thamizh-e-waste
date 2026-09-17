@@ -47,6 +47,26 @@ class _VendorList extends StatelessWidget {
   final String status;
   const _VendorList({required this.status});
 
+  static Future<bool> confirm(BuildContext context, String title,
+      String message, String confirmLabel) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: Text(title),
+            content: Text(message),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.of(c).pop(false),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                  onPressed: () => Navigator.of(c).pop(true),
+                  child: Text(confirmLabel)),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   Color _statusColor() {
     switch (status) {
       case 'approved':
@@ -149,7 +169,7 @@ class _VendorList extends StatelessWidget {
                   style: const TextStyle(height: 1.3),
                 ),
                 isThreeLine: true,
-                onTap: () => _showVendorDetails(context, data),
+                onTap: () => _showVendorDetails(context, doc, data),
                 trailing: isPending
                     ? Row(
                         mainAxisSize: MainAxisSize.min,
@@ -159,26 +179,11 @@ class _VendorList extends StatelessWidget {
                             icon: const Icon(Icons.check_circle,
                                 color: Colors.green),
                             onPressed: () async {
-                              final ok = await showDialog<bool>(
-                                    context: context,
-                                    builder: (c) => AlertDialog(
-                                      title: const Text('Approve vendor'),
-                                      content:
-                                          const Text('Approve this vendor?'),
-                                      actions: [
-                                        TextButton(
-                                            onPressed: () =>
-                                                Navigator.of(c).pop(false),
-                                            child: const Text('Cancel')),
-                                        ElevatedButton(
-                                            onPressed: () =>
-                                                Navigator.of(c).pop(true),
-                                            child: const Text('Approve')),
-                                      ],
-                                    ),
-                                  ) ??
-                                  false;
-
+                              final ok = await confirm(
+                                  context,
+                                  'Approve vendor',
+                                  'Approve this vendor?',
+                                  'Approve');
                               if (ok)
                                 await _VendorActions.approve(doc, context);
                             },
@@ -188,26 +193,8 @@ class _VendorList extends StatelessWidget {
                             icon: const Icon(Icons.cancel,
                                 color: Colors.redAccent),
                             onPressed: () async {
-                              final ok = await showDialog<bool>(
-                                    context: context,
-                                    builder: (c) => AlertDialog(
-                                      title: const Text('Reject vendor'),
-                                      content:
-                                          const Text('Reject this vendor?'),
-                                      actions: [
-                                        TextButton(
-                                            onPressed: () =>
-                                                Navigator.of(c).pop(false),
-                                            child: const Text('Cancel')),
-                                        ElevatedButton(
-                                            onPressed: () =>
-                                                Navigator.of(c).pop(true),
-                                            child: const Text('Reject')),
-                                      ],
-                                    ),
-                                  ) ??
-                                  false;
-
+                              final ok = await confirm(context, 'Reject vendor',
+                                  'Reject this vendor?', 'Reject');
                               if (ok) await _VendorActions.reject(doc, context);
                             },
                           ),
@@ -289,7 +276,8 @@ class _VendorList extends StatelessWidget {
 /// =========================
 /// Bottom sheet: details + static map preview
 /// =========================
-void _showVendorDetails(BuildContext context, Map<String, dynamic> data) {
+void _showVendorDetails(
+    BuildContext context, DocumentSnapshot doc, Map<String, dynamic> data) {
   // Helper to safely convert to double
   double? _toDouble(dynamic v) {
     if (v == null) return null;
@@ -305,23 +293,27 @@ void _showVendorDetails(BuildContext context, Map<String, dynamic> data) {
   final double? lat = _toDouble(data['latitude']);
   final double? lng = _toDouble(data['longitude']);
 
+  final latController = TextEditingController(text: lat?.toString() ?? '');
+  final lngController = TextEditingController(text: lng?.toString() ?? '');
+  bool isSaving = false;
+
   // Use OpenStreetMap static map (free, no API key)
-  final String? staticMapUrl = (lat != null && lng != null)
-      ? 'https://staticmap.openstreetmap.de/staticmap.php?center=$lat,$lng&zoom=17&size=600x300&markers=$lat,$lng,red-pushpin'
+  String? buildStaticMapUrl(double? la, double? lo) => (la != null &&
+          lo != null)
+      ? 'https://staticmap.openstreetmap.de/staticmap.php?center=$la,$lo&zoom=17&size=600x300&markers=$la,$lo,red-pushpin'
       : null;
 
-  Future<void> openGoogleMaps() async {
-    if (lat == null || lng == null) {
+  Future<void> openGoogleMaps(double? la, double? lo) async {
+    if (la == null || lo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Location not available")));
       return;
     }
     final Uri url =
-        Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+        Uri.parse('https://www.google.com/maps/search/?api=1&query=$la,$lo');
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } else {
-      // fallback
       await launchUrl(url);
     }
   }
@@ -334,88 +326,192 @@ void _showVendorDetails(BuildContext context, Map<String, dynamic> data) {
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
     builder: (ctx) {
-      return Padding(
-        padding: EdgeInsets.only(
-            left: 18,
-            right: 18,
-            top: 18,
-            bottom: 18 + MediaQuery.of(ctx).viewInsets.bottom),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(data['shopName'] ?? "Shop Name",
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              Text("👤 Owner: ${data['ownerName'] ?? 'N/A'}"),
-              Text("📞 Contact: ${data['contact'] ?? 'N/A'}"),
-              if ((data['address'] ?? '').toString().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6.0),
-                  child: Text("📍 Address: ${data['address']}"),
-                ),
-              const SizedBox(height: 12),
-              if (staticMapUrl != null) ...[
-                const Text("🗺 Location Preview",
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    staticMapUrl,
-                    height: 200,
+      return StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final currentLat = _toDouble(latController.text);
+          final currentLng = _toDouble(lngController.text);
+          final staticMapUrl = buildStaticMapUrl(currentLat, currentLng);
+
+          Future<void> saveCoordinates() async {
+            final newLat = double.tryParse(latController.text.trim());
+            final newLng = double.tryParse(lngController.text.trim());
+            if (newLat == null || newLng == null) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content:
+                      Text("Enter valid numbers for latitude and longitude")));
+              return;
+            }
+            if (newLat < -90 || newLat > 90 || newLng < -180 || newLng > 180) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content:
+                      Text("Latitude must be -90..90, longitude -180..180")));
+              return;
+            }
+            setSheetState(() => isSaving = true);
+            try {
+              await doc.reference.update({
+                'latitude': newLat,
+                'longitude': newLng,
+              });
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Location updated ✅")));
+              }
+              setSheetState(() {});
+            } catch (e) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Failed to save location: $e")));
+            } finally {
+              setSheetState(() => isSaving = false);
+            }
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(
+                left: 18,
+                right: 18,
+                top: 18,
+                bottom: 18 + MediaQuery.of(ctx).viewInsets.bottom),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(data['shopName'] ?? "Shop Name",
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  Text("Owner: ${data['ownerName'] ?? 'N/A'}"),
+                  Text("Contact: ${data['contact'] ?? 'N/A'}"),
+                  if ((data['address'] ?? '').toString().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6.0),
+                      child: Text("Address: ${data['address']}"),
+                    ),
+                  const SizedBox(height: 12),
+                  const Text("Location",
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  if (staticMapUrl != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(
+                        staticMapUrl,
+                        height: 200,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (c, child, progress) {
+                          if (progress == null) return child;
+                          return Container(
+                            height: 200,
+                            color: Colors.grey[200],
+                            child: const Center(
+                                child: CircularProgressIndicator()),
+                          );
+                        },
+                        errorBuilder: (c, e, s) {
+                          return Container(
+                            height: 200,
+                            color: Colors.grey[200],
+                            child: const Center(
+                                child: Text("Unable to load map preview")),
+                          );
+                        },
+                      ),
+                    )
+                  else
+                    Container(
+                      height: 100,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          "No location set — enter coordinates below",
+                          style: TextStyle(color: Colors.black54, fontSize: 13),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  // ── Editable coordinates — fixes vendor location drop ─────
+                  // issue: if a vendor's lat/lng never got saved (or is
+                  // wrong), admin can now correct it here instead of the
+                  // vendor having to re-register.
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: latController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              signed: true, decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: 'Latitude',
+                            isDense: true,
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (_) => setSheetState(() {}),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: lngController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              signed: true, decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: 'Longitude',
+                            isDense: true,
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (_) => setSheetState(() {}),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
                     width: double.infinity,
-                    fit: BoxFit.cover,
-                    loadingBuilder: (c, child, progress) {
-                      if (progress == null) return child;
-                      return Container(
-                        height: 200,
-                        color: Colors.grey[200],
-                        child: const Center(child: CircularProgressIndicator()),
-                      );
-                    },
-                    errorBuilder: (c, e, s) {
-                      return Container(
-                        height: 200,
-                        color: Colors.grey[200],
-                        child: const Center(
-                            child: Text("Unable to load map preview")),
-                      );
-                    },
+                    child: OutlinedButton.icon(
+                      onPressed: isSaving ? null : saveCoordinates,
+                      icon: isSaving
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.save_outlined),
+                      label: Text(isSaving ? "Saving..." : "Save location"),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text("Latitude: $lat"),
-                Text("Longitude: $lng"),
-                const SizedBox(height: 12),
-                ElevatedButton.icon(
-                  onPressed: openGoogleMaps,
-                  icon: const Icon(Icons.map),
-                  label: const Text("Open in Google Maps"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    minimumSize: const Size(double.infinity, 48),
+                  const SizedBox(height: 8),
+                  if (staticMapUrl != null)
+                    ElevatedButton.icon(
+                      onPressed: () => openGoogleMaps(currentLat, currentLng),
+                      icon: const Icon(Icons.map),
+                      label: const Text("Open in Google Maps"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        minimumSize: const Size(double.infinity, 48),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.close),
+                      label: const Text("Close"),
+                      onPressed: () => Navigator.pop(ctx),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey[800]),
+                    ),
                   ),
-                ),
-              ] else ...[
-                const SizedBox(height: 8),
-                const Text("Location not provided"),
-              ],
-              const SizedBox(height: 16),
-              Align(
-                alignment: Alignment.centerRight,
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.close),
-                  label: const Text("Close"),
-                  onPressed: () => Navigator.pop(ctx),
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey[800]),
-                ),
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       );
     },
   );
@@ -449,6 +545,7 @@ class _VendorActions {
         'ownerName': data['ownerName'] ?? '',
         'contact': data['contact'] ?? data['phone'] ?? '',
         'address': data['address'] ?? '',
+        'serviceArea': data['serviceArea'] ?? '',
         'latitude': data['latitude'],
         'longitude': data['longitude'],
         'status': 'approved',

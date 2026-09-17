@@ -105,20 +105,27 @@ class VendorAssignedPickupsScreen extends StatelessWidget {
                 Expanded(
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.check_circle),
-                    label: const Text('Mark Complete'),
+                    label: const Text('Mark Collected'),
                     style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green[700]),
-                    onPressed: () {
-                      Navigator.pop(context);
-                      FirebaseFirestore.instance
-                          .collection('pickup_requests')
-                          .doc(doc.id)
-                          .update({'status': 'Completed'});
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('Pickup marked as completed')),
-                      );
-                    },
+                    onPressed: status == 'Completed'
+                        ? null
+                        : () {
+                            Navigator.pop(context);
+                            // Vendors mark items "Collected", not "Completed".
+                            // Only the admin's Complete action credits impact
+                            // stats and reward points — if vendors could set
+                            // "Completed" directly, that logic never runs.
+                            FirebaseFirestore.instance
+                                .collection('pickup_requests')
+                                .doc(doc.id)
+                                .update({'status': 'Collected'});
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text(
+                                      'Marked as collected — pending admin confirmation')),
+                            );
+                          },
                   ),
                 ),
                 if (phone.isNotEmpty) ...[

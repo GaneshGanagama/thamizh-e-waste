@@ -29,12 +29,32 @@ class RequestsTab extends StatelessWidget {
         return;
       }
 
+      // Once a request is Completed, it's locked — impact and reward
+      // points have already been credited, so reopening it and marking
+      // it Completed again would double-count both.
+      if (oldStatus == "Completed") {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text(
+                  "This request is already Completed and locked. Status can't be changed.")),
+        );
+        return;
+      }
+
       await docRef.update({"status": status});
 
-      // ── Impact update when marking Completed ─────────────────────────────
+      // ── Impact + reward update when marking Completed ────────────────────
       if (status == "Completed") {
         try {
           final pickupData = snap.data() ?? {};
+
+          // Extra safety net alongside the lock above: never double-apply
+          // impact/points to the same request even if this somehow runs twice.
+          if (pickupData['impactApplied'] == true) {
+            debugPrint('⚠️ Impact already applied for $id, skipping.');
+            return;
+          }
+
           final items = (pickupData['items'] as List<dynamic>? ?? []);
           double totalKg = 0;
           for (final it in items) {
@@ -47,32 +67,45 @@ class RequestsTab extends StatelessWidget {
               .doc('impact_factors')
               .get();
           final f = factorsSnap.data() ?? {};
-          final treeFactor  = (f['tree']  ?? 30.0).toDouble();
+          final treeFactor = (f['tree'] ?? 30.0).toDouble();
           final waterFactor = (f['water'] ?? 5.0).toDouble();
-          final co2Factor   = (f['co2']   ?? 1.6).toDouble();
+          final co2Factor = (f['co2'] ?? 1.6).toDouble();
 
           final batch = FirebaseFirestore.instance.batch();
 
           // Increment total_impact
           final impactRef = FirebaseFirestore.instance
-              .collection('settings').doc('total_impact');
-          batch.set(impactRef, {
-            'totalKg':    FieldValue.increment(totalKg),
-            'treesSaved': FieldValue.increment(
-                treeFactor > 0 ? totalKg / treeFactor : 0),
-            'waterLitres': FieldValue.increment(totalKg * waterFactor),
-            'co2Kg':       FieldValue.increment(totalKg * co2Factor),
-          }, SetOptions(merge: true));
+              .collection('settings')
+              .doc('total_impact');
+          batch.set(
+              impactRef,
+              {
+                'totalKg': FieldValue.increment(totalKg),
+                'treesSaved': FieldValue.increment(
+                    treeFactor > 0 ? totalKg / treeFactor : 0),
+                'waterLitres': FieldValue.increment(totalKg * waterFactor),
+                'co2Kg': FieldValue.increment(totalKg * co2Factor),
+                'completedCount': FieldValue.increment(1),
+              },
+              SetOptions(merge: true));
 
-          // Increment user totalRecycledWeight
+          // Increment user totalRecycledWeight + reward points.
+          // Points are granted HERE (on admin-confirmed completion), not on
+          // request submission — otherwise a user could farm points by
+          // spamming requests that never actually get collected.
           final userId = (pickupData['userId'] ?? '').toString();
           if (userId.isNotEmpty) {
-            final userRef = FirebaseFirestore.instance
-                .collection('users').doc(userId);
+            final userRef =
+                FirebaseFirestore.instance.collection('users').doc(userId);
             batch.update(userRef, {
               'totalRecycledWeight': FieldValue.increment(totalKg),
+              'points': FieldValue.increment(50),
             });
           }
+
+          // Mark this request as impact-applied so it can never be
+          // double-counted, even if the status lock above is ever bypassed.
+          batch.update(docRef, {'impactApplied': true});
 
           await batch.commit();
         } catch (impactErr) {
@@ -129,6 +162,88 @@ class RequestsTab extends StatelessWidget {
     }
   }
 
+  Future<void> _assignVendor(String requestId, BuildContext context) async {
+    final vendorsSnap = await FirebaseFirestore.instance
+        .collection('vendors')
+        .where('status', isEqualTo: 'approved')
+        .get();
+
+    if (vendorsSnap.docs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No approved vendors available yet")),
+      );
+      return;
+    }
+
+    if (!context.mounted) return;
+
+    final selected = await showDialog<DocumentSnapshot>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Assign a vendor'),
+        content: SizedBox(
+          width: 320,
+          child: ListView(
+            shrinkWrap: true,
+            children: vendorsSnap.docs.map((v) {
+              final vd = v.data();
+              return ListTile(
+                leading: const Icon(Icons.storefront, color: Colors.green),
+                title: Text((vd['shopName'] ?? 'Unnamed shop').toString()),
+                subtitle: Text((vd['ownerName'] ?? '').toString()),
+                onTap: () => Navigator.of(c).pop(v),
+              );
+            }).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(c).pop(),
+              child: const Text('Cancel')),
+        ],
+      ),
+    );
+
+    if (selected == null) return;
+    final vendorData = selected.data() as Map<String, dynamic>;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('pickup_requests')
+          .doc(requestId)
+          .update({
+        'assignedTo': selected.id,
+        'assignedVendorName': vendorData['shopName'] ?? '',
+        'status': 'Assigned',
+      });
+
+      final user = FirebaseAuth.instance.currentUser;
+      await FirebaseFirestore.instance.collection('request_history').add({
+        'requestId': requestId,
+        'oldStatus': 'Pending',
+        'newStatus': 'Assigned',
+        'note': 'Assigned to vendor ${vendorData['shopName']}',
+        'changedByUid': user?.uid,
+        'changedByEmail': user?.email,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content:
+                  Text("Assigned to ${vendorData['shopName'] ?? 'vendor'}")),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Assignment failed: $e")),
+        );
+      }
+    }
+  }
+
   Future<void> _callPhone(String phone) async {
     final Uri url = Uri.parse("tel:$phone");
     if (await canLaunchUrl(url)) {
@@ -162,6 +277,12 @@ class RequestsTab extends StatelessWidget {
     switch (status) {
       case "Completed":
         color = Colors.green;
+        break;
+      case "Collected":
+        color = Colors.teal;
+        break;
+      case "Assigned":
+        color = Colors.blue;
         break;
       case "In Progress":
         color = Colors.orange;
@@ -393,28 +514,57 @@ class RequestsTab extends StatelessWidget {
                   const SizedBox(height: 8),
 
                   // -------- Admin Action Buttons --------
-                  Row(
+                  if (status == "Completed")
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        "🔒 Completed — locked, impact & points already credited",
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                            color: Colors.grey),
+                      ),
+                    ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       ElevatedButton(
-                        onPressed: () =>
-                            _confirmAndUpdate(doc.id, "Completed", context),
+                        onPressed: status == "Completed"
+                            ? null
+                            : () =>
+                                _confirmAndUpdate(doc.id, "Completed", context),
                         child: const Text("Complete"),
                       ),
-                      const SizedBox(width: 8),
                       ElevatedButton(
-                        onPressed: () =>
-                            _confirmAndUpdate(doc.id, "In Progress", context),
+                        onPressed: status == "Completed"
+                            ? null
+                            : () => _confirmAndUpdate(
+                                doc.id, "In Progress", context),
                         child: const Text("In Progress"),
                       ),
-                      const SizedBox(width: 8),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.red),
-                        onPressed: () =>
-                            _confirmAndUpdate(doc.id, "Cancelled", context),
+                        onPressed: status == "Completed"
+                            ? null
+                            : () =>
+                                _confirmAndUpdate(doc.id, "Cancelled", context),
                         child: const Text("Cancel"),
                       ),
-                      const Spacer(),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.teal),
+                        onPressed: status == "Completed"
+                            ? null
+                            : () => _assignVendor(doc.id, context),
+                        icon: const Icon(Icons.storefront, size: 18),
+                        label: Text(data["assignedVendorName"] != null &&
+                                data["assignedVendorName"].toString().isNotEmpty
+                            ? "Vendor: ${data["assignedVendorName"]}"
+                            : "Assign Vendor"),
+                      ),
                       if (phoneRaw.isNotEmpty)
                         IconButton(
                           icon: const Icon(Icons.call, color: Colors.green),

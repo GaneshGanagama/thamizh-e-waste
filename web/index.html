@@ -1,35 +1,213 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <base href="/">
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Thamizh E-Waste App">
+  <!-- ══════════════════════════════════════════════════════════
+       PERFORMANCE — open connections early, don't wait for parser
+  ══════════════════════════════════════════════════════════ -->
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin />
+  <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin />
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
+  <link rel="dns-prefetch" href="https://firestore.googleapis.com" />
+  <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com" />
 
-  <link rel="icon" type="image/png" href="favicon.png">
-  <link rel="manifest" href="manifest.json">
-  <title>Thamizh E-Waste</title>
+  <!-- ══════════════════════════════════════════════════════════
+       PRIMARY SEO
+  ══════════════════════════════════════════════════════════ -->
+  <title>Ecomeel – E-Waste Recycling & Home Pickup | Tamil Nadu</title>
+  <meta name="description"
+        content="Ecomeel makes e-waste recycling easy in Tamil Nadu. Schedule a free home pickup, find the nearest drop-off point, donate old electronics, and earn rewards — all in one app." />
+  <meta name="keywords"
+        content="e-waste recycling Tamil Nadu, electronic waste pickup Chennai, recycle old electronics, e-waste drop-off, donate electronics, Ecomeel, ewaste app India, scrap electronics pickup, refurbished electronics" />
+  <meta name="author" content="Ecomeel" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://ecomeel.in/" />
 
-  <!-- ✅ Firebase JS SDK -->
-  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-auth.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js"></script>
+  <!-- ══════════════════════════════════════════════════════════
+       OPEN GRAPH  (Facebook / WhatsApp / LinkedIn)
+  ══════════════════════════════════════════════════════════ -->
+  <meta property="og:type"        content="website" />
+  <meta property="og:url"         content="https://ecomeel.in/" />
+  <meta property="og:site_name"   content="Ecomeel" />
+  <meta property="og:title"       content="Ecomeel – Free E-Waste Home Pickup in Tamil Nadu" />
+  <meta property="og:description" content="Schedule a free e-waste pickup from your home, find drop-off points near you, donate electronics, and earn eco-rewards with Ecomeel." />
+  <meta property="og:image"       content="https://ecomeel.in/assets/images/og-banner.png" />
+  <meta property="og:image:width"  content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:locale"      content="en_IN" />
+  <meta property="og:locale:alternate" content="ta_IN" />
+
+  <!-- ══════════════════════════════════════════════════════════
+       TWITTER CARD
+  ══════════════════════════════════════════════════════════ -->
+  <meta name="twitter:card"        content="summary_large_image" />
+  <meta name="twitter:title"       content="Ecomeel – Free E-Waste Home Pickup in Tamil Nadu" />
+  <meta name="twitter:description" content="Recycle your old electronics responsibly. Free home pickup, drop-off points, donations & eco-rewards — Ecomeel, Tamil Nadu." />
+  <meta name="twitter:image"       content="https://ecomeel.in/assets/images/og-banner.png" />
+
+  <!-- ══════════════════════════════════════════════════════════
+       PWA / APP META
+  ══════════════════════════════════════════════════════════ -->
+  <meta name="application-name"  content="Ecomeel" />
+  <meta name="theme-color"       content="#2e7d32" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Ecomeel" />
+
+  <!-- ══════════════════════════════════════════════════════════
+       ICONS & MANIFEST
+  ══════════════════════════════════════════════════════════ -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon"             type="image/png" sizes="32x32"  href="icons/favicon-32x32.png" />
+  <link rel="icon"             type="image/png" sizes="16x16"  href="icons/favicon-16x16.png" />
+  <link rel="apple-touch-icon" sizes="180x180"                 href="icons/apple-touch-icon.png" />
+
+  <!-- ══════════════════════════════════════════════════════════
+       STRUCTURED DATA — LocalBusiness (Google rich results)
+  ══════════════════════════════════════════════════════════ -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    "name": "Ecomeel",
+    "url": "https://ecomeel.in",
+    "logo": "https://ecomeel.in/assets/images/logo.jpg",
+    "image": "https://ecomeel.in/assets/images/og-banner.png",
+    "description": "Ecomeel provides free e-waste home pickup, drop-off points, electronics donation, and eco-reward services across Tamil Nadu, India.",
+    "areaServed": {
+      "@type": "State",
+      "name": "Tamil Nadu",
+      "addressCountry": "IN"
+    },
+    "serviceType": [
+      "E-Waste Recycling",
+      "Home Pickup",
+      "Electronics Donation",
+      "Drop-Off Collection"
+    ],
+    "sameAs": [
+      "https://ecomeel.in"
+    ],
+    "contactPoint": {
+      "@type": "ContactPoint",
+      "contactType": "customer service",
+      "availableLanguage": ["English", "Tamil"]
+    }
+  }
+  </script>
+
+  <!-- ══════════════════════════════════════════════════════════
+       STRUCTURED DATA — WebApplication
+  ══════════════════════════════════════════════════════════ -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Ecomeel",
+    "url": "https://ecomeel.in",
+    "applicationCategory": "EnvironmentalApplication",
+    "operatingSystem": "Android, iOS, Web",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "INR"
+    },
+    "description": "Free e-waste recycling app for Tamil Nadu — schedule home pickups, donate electronics, find drop-off points, and earn eco-rewards."
+  }
+  </script>
+
+  <!-- ══════════════════════════════════════════════════════════
+       FLUTTER BOOTSTRAP
+  ══════════════════════════════════════════════════════════ -->
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background-color: #f5f5f5;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+
+    /* Loading screen shown before Flutter initialises */
+    #loading-screen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #ffffff;
+      z-index: 9999;
+      transition: opacity 0.4s ease;
+    }
+
+    #loading-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loader-logo {
+      width: 80px;
+      height: 80px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+      object-fit: contain;
+    }
+
+    .loader-brand {
+      font-size: 28px;
+      font-weight: 700;
+      color: #2e7d32;
+      letter-spacing: 1px;
+      margin-bottom: 24px;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid #c8e6c9;
+      border-top-color: #2e7d32;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+
+<body>
+
+  <!-- ── Native loading splash (replaced by Flutter once ready) ── -->
+  <div id="loading-screen" aria-label="Loading Ecomeel">
+    <img class="loader-logo"
+         src="assets/images/logo.jpg"
+         alt="Ecomeel logo"
+         onerror="this.style.display='none'" />
+    <div class="loader-brand">Ecomeel</div>
+    <div class="spinner"></div>
+  </div>
+
+  <!-- Flutter entrypoint -->
+  <script src="flutter_bootstrap.js" async></script>
 
   <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyBXtphQabzIyG_hw617jPZktk71tUOVfwE",
-      authDomain: "thamizh-faf1a.firebaseapp.com",
-      projectId: "thamizh-faf1a",
-      storageBucket: "thamizh-faf1a.appspot.com",
-      messagingSenderId: "419123520013",
-      appId: "1:419123520013:web:77f6a0aaa131c0d5e72b44"
-    };
-    firebase.initializeApp(firebaseConfig);
+    // Hide loading screen once Flutter signals readiness.
+    // NOTE: "Made with ♥ by Ganesh Gangama" is rendered ONLY by the
+    // Flutter _FooterSection widget (home_screen.dart). Do not add an
+    // HTML/CSS credit bar here — it will duplicate that footer and,
+    // if fixed-positioned, collide with SnackBar/error toasts.
+    window.addEventListener('flutter-first-frame', function () {
+      var loader = document.getElementById('loading-screen');
+      if (loader) {
+        loader.classList.add('hidden');
+        setTimeout(function () { loader.remove(); }, 500);
+      }
+    });
   </script>
-</head>
-<body>
-  <!-- ✅ Flutter Web Bootstrap -->
-  <script src="flutter_bootstrap.js" async></script>
+
 </body>
 </html>

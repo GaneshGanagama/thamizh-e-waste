@@ -10,6 +10,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart'
     show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'dart:io' show Platform;
+import '../../services/cloudinary_service.dart';
 
 class DonateEWasteScreen extends StatefulWidget {
   const DonateEWasteScreen({super.key});

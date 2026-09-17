@@ -89,9 +89,8 @@ final Map<String, WidgetBuilder> appRoutes = {
   AppRoutes.signup: (_) => const SignUpScreen(),
 
   // showLoginButton=true → Login button always visible for guests
-  AppRoutes.home: (_) => HomeScreen(
+  AppRoutes.home: (_) => const HomeScreen(
         isVendor: false,
-        onLanguageChange: (_) {},
         showLoginButton: true,
       ),
 

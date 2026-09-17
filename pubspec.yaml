@@ -2,7 +2,7 @@ name: ecomeel
 description: "Ecomeel - E-Waste Recycling & Pickup Service."
 publish_to: 'none'
 
-version: 1.0.1+2
+version: 1.0.4+5
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -18,24 +18,24 @@ dependencies:
   carousel_slider: ^5.1.1
 
   # Auth & Biometrics
-  local_auth: ^2.3.0
+  local_auth: ^3.0.1
   google_sign_in: ^6.2.1
 
   # Firebase
-  firebase_core: ^3.15.1
-  firebase_auth: ^5.6.2
-  cloud_firestore: ^5.6.11
-  firebase_messaging: ^15.2.9
-  firebase_storage: ^12.4.9
+  firebase_core: ^4.11.0
+  firebase_auth: ^6.5.4
+  cloud_firestore: ^6.6.0
+  firebase_messaging: ^16.4.1
+  firebase_storage: ^13.4.3
 
   # Supabase
   supabase_flutter: ^2.8.4
 
   # Location & Maps
-  geolocator: ^13.0.2
-  geocoding: ^3.0.0
+  geolocator: ^14.0.3
+  geocoding: ^4.0.0
   google_maps_flutter: ^2.10.0
-  flutter_polyline_points: ^2.1.0
+  flutter_polyline_points: ^3.1.0
 
   # Image & Media
   image_picker: ^1.1.2
@@ -59,18 +59,19 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true
   generate: true
 
   assets:
+    - assets/images/logo.png
     - assets/images/THAMIZH-01.png
     - assets/images/THAMIZH-02.png
     - assets/images/THAMIZH-03.png
     - assets/images/THAMIZH-04.png
-    - assets/images/logo.jpg
+    - assets/images/logo1.jpg
     - assets/images/thamizh_ewaste_page1_img1.jpg
     - assets/images/thamizh_ewaste_page2_img2.jpg
     - assets/images/thamizh_ewaste_page3_img3.jpg

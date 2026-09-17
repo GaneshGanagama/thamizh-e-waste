@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/location_service.dart';
 
 class VendorRegistrationScreen extends StatefulWidget {
   const VendorRegistrationScreen({super.key});
@@ -24,6 +25,36 @@ class _VendorRegistrationScreenState extends State<VendorRegistrationScreen> {
   final _areaCtrl = TextEditingController();
   bool _submitting = false;
   bool _submitted = false;
+  bool _capturingLocation = false;
+  double? _latitude;
+  double? _longitude;
+  String? _locationLabel;
+
+  final _locationService = LocationService();
+
+  Future<void> _captureLocation() async {
+    setState(() => _capturingLocation = true);
+    try {
+      final granted = await _locationService.ensurePermission();
+      if (!granted) {
+        _snack(
+            'Location permission denied — enable it to add GPS to your listing');
+        return;
+      }
+      final loc = await _locationService.captureLocation();
+      if (loc == null) {
+        _snack('Could not get your location. Try again.');
+        return;
+      }
+      setState(() {
+        _latitude = loc['latitude'] as double?;
+        _longitude = loc['longitude'] as double?;
+        _locationLabel = loc['readable'] as String?;
+      });
+    } finally {
+      if (mounted) setState(() => _capturingLocation = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -50,6 +81,11 @@ class _VendorRegistrationScreenState extends State<VendorRegistrationScreen> {
     }
     if (_addressCtrl.text.trim().isEmpty) {
       _snack('Enter address');
+      return;
+    }
+    if (_latitude == null || _longitude == null) {
+      _snack(
+          'Please capture your shop location (GPS) before submitting — this is how customers find you nearby.');
       return;
     }
 
@@ -88,6 +124,8 @@ class _VendorRegistrationScreenState extends State<VendorRegistrationScreen> {
         'contact': _phoneCtrl.text.trim(),
         'address': _addressCtrl.text.trim(),
         'serviceArea': _areaCtrl.text.trim(),
+        'latitude': _latitude,
+        'longitude': _longitude,
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
       });
@@ -176,6 +214,24 @@ class _VendorRegistrationScreenState extends State<VendorRegistrationScreen> {
           const SizedBox(height: 14),
           _field(
               _areaCtrl, 'Service Area (e.g. Chennai, Cuddalore)', Icons.map),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: _capturingLocation ? null : _captureLocation,
+            icon: _capturingLocation
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : Icon(
+                    _latitude != null ? Icons.check_circle : Icons.my_location,
+                    color: _latitude != null ? Colors.green : null),
+            label: Text(_latitude != null
+                ? 'Location captured: $_locationLabel'
+                : 'Capture Shop Location (GPS)'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 48),
+            ),
+          ),
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: _submitting ? null : _submit,

@@ -265,8 +265,10 @@ class _PickupRequestScreenState extends State<PickupRequestScreen> {
         totalReward: totalReward,
       );
 
-      await FirebaseFirestore.instance.collection('users').doc(user.uid)
-          .update({'points': FieldValue.increment(50)});
+      // NOTE: points are no longer granted here. They're credited by the
+      // admin panel (requests_tab.dart) only when a pickup is confirmed
+      // "Completed" — granting them on submit let users farm points with
+      // fake/never-collected requests.
 
       if (mounted) _showSuccessSheet();
     } catch (e) {
@@ -325,7 +327,7 @@ class _PickupRequestScreenState extends State<PickupRequestScreen> {
           const SizedBox(height: 12),
           const Text('Request Submitted!', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Text('You earned +50 points.\nEstimated reward: ₹${totalReward.toStringAsFixed(0)}',
+          Text('You\'ll earn +50 points once pickup is completed.\nEstimated reward: ₹${totalReward.toStringAsFixed(0)}',
               textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[600])),
           const SizedBox(height: 24),
           Row(children: [

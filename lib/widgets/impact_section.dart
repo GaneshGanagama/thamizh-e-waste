@@ -1,177 +1,211 @@
 // lib/widgets/impact_section.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
 
-class ImpactSection extends StatelessWidget {
+class ImpactSection extends StatefulWidget {
   const ImpactSection({super.key});
+  @override
+  State<ImpactSection> createState() => _ImpactSectionState();
+}
+
+class _ImpactSectionState extends State<ImpactSection> {
+  double _totalKg = 0;
+  double _treesSaved = 0;
+  double _waterLitres = 0;
+  double _co2Kg = 0;
+  int _completedCount = 0;
+
+  bool _loaded = false;
+  bool _hasError = false;
+
+  // Simple rolling community milestone — every 1000kg is a new goal.
+  // Purely a UI motivator, doesn't need its own Firestore field.
+  static const double _milestoneStepKg = 1000;
+
+  StreamSubscription? _impactSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscribe();
+  }
+
+  void _subscribe() {
+    _impactSub?.cancel();
+    setState(() {
+      _loaded = false;
+      _hasError = false;
+    });
+    // Single read: the admin flows (requests_tab.dart, donations_tab.dart)
+    // already increment this doc whenever a pickup/donation is completed,
+    // so the Home page no longer needs to scan every pickup + donation.
+    _impactSub = FirebaseFirestore.instance
+        .collection('settings')
+        .doc('total_impact')
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      final d = snap.data() ?? {};
+      setState(() {
+        _totalKg = (d['totalKg'] ?? 0).toDouble();
+        _treesSaved = (d['treesSaved'] ?? 0).toDouble();
+        _waterLitres = (d['waterLitres'] ?? 0).toDouble();
+        _co2Kg = (d['co2Kg'] ?? 0).toDouble();
+        _completedCount = (d['completedCount'] ?? 0).toInt();
+        _loaded = true;
+        _hasError = false;
+      });
+    }, onError: (_) {
+      if (mounted) {
+        setState(() {
+          _loaded = true;
+          _hasError = true;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _impactSub?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    // FIX 1: Use StreamBuilder so numbers update in real-time
-    //         when admin marks requests as Completed.
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('settings')
-          .doc('impact_factors')
-          .snapshots(),
-      builder: (context, settingsSnap) {
-        // Read impact multipliers (set by admin in Impact Settings tab)
-        double treeFactor  = 30.0;  // kg of e-waste per tree saved
-        double waterFactor = 5.0;   // litres saved per kg recycled
-        double co2Factor   = 1.6;   // kg CO2 reduced per kg recycled
+    final isLoading = !_loaded;
 
-        if (settingsSnap.hasData && settingsSnap.data!.exists) {
-          final d = settingsSnap.data!.data() as Map<String, dynamic>;
-          treeFactor  = (d['tree']  ?? 30.0).toDouble();
-          waterFactor = (d['water'] ?? 5.0).toDouble();
-          co2Factor   = (d['co2']   ?? 1.6).toDouble();
-        }
+    final currentMilestone =
+        ((_totalKg / _milestoneStepKg).floor() + 1) * _milestoneStepKg;
+    final progressToMilestone =
+        (_totalKg % _milestoneStepKg) / _milestoneStepKg;
+    final kgToGo = currentMilestone - _totalKg;
 
-        // FIX 2: Listen to pickup_requests in real-time
-        return StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('pickup_requests')
-              // FIX 3: "Completed" matches what requests_tab.dart saves
-              .where('status', isEqualTo: 'Completed')
-              .snapshots(),
-          builder: (context, pickupSnap) {
-
-            // FIX 4: Also listen to donations that are "Collected"
-            return StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('donations')
-                  // donations_tab.dart saves 'Collected' for completed donations
-                  .where('status', isEqualTo: 'Collected')
-                  .snapshots(),
-              builder: (context, donationSnap) {
-
-                double totalKg = 0;
-
-                // Count kg from completed pickup requests (items array)
-                if (pickupSnap.hasData) {
-                  for (final doc in pickupSnap.data!.docs) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    final items = data['items'] as List<dynamic>? ?? [];
-                    for (final it in items) {
-                      totalKg += (it['weight'] as num? ?? 0).toDouble();
-                    }
-                  }
-                }
-
-                // Count kg from collected donations
-                // Donations don't have an items array — each donation is
-                // treated as 1 kg by default, or use a 'weight' field if present
-                if (donationSnap.hasData) {
-                  for (final doc in donationSnap.data!.docs) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    // If admin added a weight field use it, otherwise count 1 kg
-                    final w = (data['weight'] as num? ?? 1).toDouble();
-                    totalKg += w;
-                  }
-                }
-
-                // Show loading only while both streams are waiting
-                final isLoading =
-                    pickupSnap.connectionState == ConnectionState.waiting ||
-                    donationSnap.connectionState == ConnectionState.waiting;
-
-                // Calculate impact numbers
-                final treesCount = treeFactor > 0
-                    ? (totalKg / treeFactor).toStringAsFixed(0)
-                    : '0';
-                final waterLitres =
-                    (totalKg * waterFactor).toStringAsFixed(0);
-                final co2Kg =
-                    (totalKg * co2Factor).toStringAsFixed(0);
-                final totalItems =
-                    (pickupSnap.data?.docs.length ?? 0) +
-                    (donationSnap.data?.docs.length ?? 0);
-
-                return Container(
-                  margin: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.green[50],
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.green.shade200),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.green[50],
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.green.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.eco, color: Colors.green[700], size: 18),
+              const SizedBox(width: 6),
+              Text(
+                'Our Collective Impact',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green[800],
+                ),
+              ),
+              const Spacer(),
+              if (isLoading)
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.green[700],
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.eco,
-                              color: Colors.green[700], size: 18),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Our Collective Impact',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green[800],
-                            ),
-                          ),
-                          const Spacer(),
-                          if (isLoading)
-                            SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.green[700],
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '$totalItems recycling${totalItems == 1 ? "" : "s"} completed · ${totalKg.toStringAsFixed(0)} kg total',
-                        style: TextStyle(
-                            fontSize: 12, color: Colors.green[600]),
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.spaceAround,
-                        children: [
-                          _ImpactTile(
-                            icon: Icons.park,
-                            value: treesCount,
-                            label: 'Trees Saved',
-                            color: Colors.green,
-                          ),
-                          _ImpactTile(
-                            icon: Icons.water_drop,
-                            value: waterLitres,
-                            label: 'Litres Saved',
-                            color: Colors.blue,
-                          ),
-                          _ImpactTile(
-                            icon: Icons.cloud_off,
-                            value: co2Kg,
-                            label: 'kg CO₂ Cut',
-                            color: Colors.teal,
-                          ),
-                        ],
-                      ),
-                    ],
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          if (_hasError)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    "Couldn't load impact data — check your connection or permissions.",
+                    style: TextStyle(fontSize: 12, color: Colors.red[600]),
                   ),
-                );
-              },
-            );
-          },
-        );
-      },
+                ),
+                TextButton(
+                  onPressed: _subscribe,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Retry', style: TextStyle(fontSize: 12)),
+                ),
+              ],
+            )
+          else
+            Text(
+              '$_completedCount recycling${_completedCount == 1 ? "" : "s"} completed · ${_totalKg.toStringAsFixed(0)} kg total',
+              style: TextStyle(fontSize: 12, color: Colors.green[600]),
+            ),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _ImpactTile(
+                icon: Icons.park,
+                value: _treesSaved,
+                label: 'Trees Saved',
+                color: Colors.green,
+              ),
+              _ImpactTile(
+                icon: Icons.water_drop,
+                value: _waterLitres,
+                label: 'Litres Saved',
+                color: Colors.blue,
+              ),
+              _ImpactTile(
+                icon: Icons.cloud_off,
+                value: _co2Kg,
+                label: 'kg CO₂ Cut',
+                color: Colors.teal,
+              ),
+            ],
+          ),
+          if (!_hasError && _loaded && _totalKg > 0) ...[
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Text(
+                  '${kgToGo.toStringAsFixed(0)} kg to ${currentMilestone.toStringAsFixed(0)} kg community goal',
+                  style: TextStyle(fontSize: 11, color: Colors.green[700]),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: progressToMilestone.clamp(0, 1),
+                minHeight: 6,
+                backgroundColor: Colors.green.withOpacity(0.12),
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.green[600]!),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
 
 class _ImpactTile extends StatelessWidget {
   final IconData icon;
-  final String   value;
-  final String   label;
-  final Color    color;
+  final double value;
+  final String label;
+  final Color color;
 
   const _ImpactTile({
     required this.icon,
@@ -186,12 +220,19 @@ class _ImpactTile extends StatelessWidget {
       children: [
         Icon(icon, color: color, size: 28),
         const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: color),
+        // Animates the number counting up/down whenever the underlying
+        // Firestore doc changes, instead of a flat text swap.
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0, end: value),
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeOutCubic,
+          builder: (context, animatedValue, child) {
+            return Text(
+              animatedValue.toStringAsFixed(0),
+              style: TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.bold, color: color),
+            );
+          },
         ),
         Text(
           label,

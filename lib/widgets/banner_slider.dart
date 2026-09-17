@@ -1,17 +1,16 @@
+// lib/widgets/banner_slider.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:carousel_slider/carousel_slider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class BannerSlider extends StatefulWidget {
   final List<String> images;
-  final List<String>? links;
+  final List<String> links;
 
   const BannerSlider({
     super.key,
     required this.images,
-    this.links,
+    this.links = const [],
   });
 
   @override
@@ -19,180 +18,127 @@ class BannerSlider extends StatefulWidget {
 }
 
 class _BannerSliderState extends State<BannerSlider> {
+  late final PageController _pc;
   int _current = 0;
+  Timer? _timer;
 
-  bool _isNetwork(String v) =>
-      v.startsWith('http://') || v.startsWith('https://');
+  @override
+  void initState() {
+    super.initState();
+    _pc = PageController();
+    if (widget.images.length > 1) {
+      _timer = Timer.periodic(const Duration(seconds: 4), (_) {
+        if (!mounted) return;
+        final next = (_current + 1) % widget.images.length;
+        _pc.animateToPage(next,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeInOut);
+      });
+    }
+  }
 
-  Future<void> _onBannerTap(int index) async {
-    if (widget.links == null || index >= widget.links!.length) return;
-    final link = widget.links![index];
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _pc.dispose();
+    super.dispose();
+  }
+
+  Future<void> _onTap(int index) async {
+    final link = index < widget.links.length ? widget.links[index].trim() : '';
     if (link.isEmpty) return;
     final uri = Uri.tryParse(link);
-    if (uri == null) return;
-    await launchUrl(
-      uri,
-      mode:
-          kIsWeb ? LaunchMode.platformDefault : LaunchMode.externalApplication,
-      webOnlyWindowName: '_blank',
-    );
+    if (uri != null && await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.images.isEmpty) {
-      return const SizedBox(
-        height: 180,
-        child: Center(child: Text('No banners available')),
-      );
-    }
+    final width = MediaQuery.of(context).size.width;
+    // Desktop: contained width, matches the same max-width column
+    // used by every other section on the home page (see home_screen.dart _kMaxWidth).
+    final isDesktop = width > 900;
+    const maxContentWidth = 1100.0;
+    final hPadding = isDesktop ? 0.0 : 12.0;
+
+    // Mobile banners were designed roughly 16:9-ish; keep that ratio so
+    // BoxFit.cover never has to crop away large parts of the image.
+    // Desktop gets a slightly wider, shorter ratio so it reads as a "hero"
+    // strip instead of a tall wall of image.
+    final aspectRatio = isDesktop ? 21 / 9 : 16 / 9;
 
     return Column(
       children: [
-        CarouselSlider.builder(
-          itemCount: widget.images.length,
-          itemBuilder: (context, index, realIndex) {
-            final img = widget.images[index];
-            return GestureDetector(
-              onTap: () => _onBannerTap(index),
-              child: _BannerImage(src: img),
-            );
-          },
-          options: CarouselOptions(
-            // aspectRatio drives the height automatically from screen width
-            // 16:9 is the standard for banner/hero images on web & mobile
-            aspectRatio: 16 / 6,
-            viewportFraction: 1.0,
-            autoPlay: true,
-            autoPlayInterval: const Duration(seconds: 4),
-            autoPlayCurve: Curves.easeInOut,
-            autoPlayAnimationDuration: const Duration(milliseconds: 600),
-            enlargeCenterPage: false,
-            onPageChanged: (i, _) => setState(() => _current = i),
-          ),
-        ),
-
-        const SizedBox(height: 8),
-
-        // Animated dots indicator
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(
-            widget.images.length,
-            (i) => AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-              width: _current == i ? 20 : 7,
-              height: 7,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                color: _current == i
-                    ? Colors.green[700]
-                    : Colors.grey.withOpacity(0.35),
+        Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: isDesktop ? maxContentWidth : double.infinity,
+            ),
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: hPadding, vertical: 4),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(isDesktop ? 16 : 12),
+                child: AspectRatio(
+                  aspectRatio: aspectRatio,
+                  child: PageView.builder(
+                    controller: _pc,
+                    itemCount: widget.images.length,
+                    onPageChanged: (i) => setState(() => _current = i),
+                    itemBuilder: (_, i) {
+                      final src = widget.images[i];
+                      final isNetwork = src.startsWith('http');
+                      return GestureDetector(
+                        onTap: () => _onTap(i),
+                        child: isNetwork
+                            ? Image.network(
+                                src,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                errorBuilder: (_, __, ___) => _placeholder(),
+                              )
+                            : Image.asset(
+                                src,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                errorBuilder: (_, __, ___) => _placeholder(),
+                              ),
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ),
         ),
+        if (widget.images.length > 1) ...[
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(widget.images.length, (i) {
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                width: _current == i ? 18 : 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: _current == i
+                      ? Colors.green[700]
+                      : Colors.green.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              );
+            }),
+          ),
+        ],
       ],
     );
   }
-}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// _BannerImage — renders one banner respecting its natural aspect ratio.
-// For network images: loads naturally, never stretches, letterboxes if needed.
-// For asset images: same behaviour.
-// ─────────────────────────────────────────────────────────────────────────────
-class _BannerImage extends StatelessWidget {
-  final String src;
-  const _BannerImage({required this.src});
-
-  bool get _isNetwork =>
-      src.startsWith('http://') || src.startsWith('https://');
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        width: double.infinity,
-        color: Colors.grey[100],
-        child: _isNetwork ? _networkImage() : _assetImage(),
-      ),
-    );
-  }
-
-  Widget _networkImage() {
-    return CachedNetworkImage(
-      imageUrl: src,
-      // contain = show full image at its natural ratio, no cropping, no stretch
-      fit: BoxFit.contain,
-      width: double.infinity,
-      fadeInDuration: const Duration(milliseconds: 300),
-      placeholder: (_, __) => const _BannerPlaceholder(),
-      errorWidget: (_, __, ___) => const _BannerError(),
-    );
-  }
-
-  Widget _assetImage() {
-    return Image.asset(
-      src,
-      fit: BoxFit.contain,
-      width: double.infinity,
-      errorBuilder: (_, __, ___) => const _BannerError(),
-    );
-  }
-}
-
-class _BannerPlaceholder extends StatelessWidget {
-  const _BannerPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _placeholder() {
     return Container(
       color: Colors.grey[200],
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.image_outlined, size: 36, color: Colors.grey[400]),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: 120,
-              child: LinearProgressIndicator(
-                backgroundColor: Colors.grey[300],
-                color: Colors.green[400],
-                minHeight: 2,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BannerError extends StatelessWidget {
-  const _BannerError();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: Colors.grey[100],
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.broken_image_outlined,
-                size: 36, color: Colors.grey[400]),
-            const SizedBox(height: 6),
-            Text(
-              'Image unavailable',
-              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-            ),
-          ],
-        ),
-      ),
+      child: const Center(child: Icon(Icons.image_not_supported, size: 40)),
     );
   }
 }

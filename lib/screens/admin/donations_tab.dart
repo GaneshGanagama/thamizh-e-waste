@@ -23,14 +23,34 @@ class DonationsTab extends StatelessWidget {
         return;
       }
 
+      // Same lock as pickup requests: once Collected, impact has already
+      // been credited, so reverting and re-collecting would double-count.
+      if (oldStatus == 'Collected') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'This donation is already Collected and locked. Status can\'t be changed.')),
+        );
+        return;
+      }
+
       await docRef.update({'status': status});
 
       // ── Impact update when marking Collected ─────────────────────────────
       if (status == 'Collected') {
         try {
           final donationData = snap.data() ?? {};
+
+          if (donationData['impactApplied'] == true) {
+            debugPrint('⚠️ Impact already applied for donation $id, skipping.');
+            return;
+          }
+
+          // Missing weight should NOT be assumed as 1kg — that silently
+          // inflates impact numbers for every donation without a recorded
+          // weight. 0 is the honest default; fix the weight at intake instead.
           final double donationKg =
-              (donationData['weight'] as num? ?? 1).toDouble();
+              (donationData['weight'] as num? ?? 0).toDouble();
 
           final factorsSnap = await FirebaseFirestore.instance
               .collection('settings').doc('impact_factors').get();
@@ -58,6 +78,7 @@ class DonationsTab extends StatelessWidget {
               'totalRecycledWeight': FieldValue.increment(donationKg),
             });
           }
+          impactBatch.update(docRef, {'impactApplied': true});
           await impactBatch.commit();
         } catch (e) {
           debugPrint('⚠️ Donation impact update failed: $e');
@@ -229,16 +250,20 @@ class DonationsTab extends StatelessWidget {
                         horizontal: 12.0, vertical: 8.0),
                     child: Row(children: [
                       ElevatedButton(
-                        onPressed: () =>
-                            _confirmAndUpdate(doc.id, 'Collected', context),
+                        onPressed: status == 'Collected'
+                            ? null
+                            : () => _confirmAndUpdate(
+                                doc.id, 'Collected', context),
                         child: const Text('Mark Collected'),
                       ),
                       const SizedBox(width: 8),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.redAccent),
-                        onPressed: () =>
-                            _confirmAndUpdate(doc.id, 'Cancelled', context),
+                        onPressed: status == 'Collected'
+                            ? null
+                            : () => _confirmAndUpdate(
+                                doc.id, 'Cancelled', context),
                         child: const Text('Cancel'),
                       ),
                       const Spacer(),
