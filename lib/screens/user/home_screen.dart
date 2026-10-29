@@ -184,8 +184,11 @@ class _HomeScreenState extends State<HomeScreen> {
       AppRoutes.profile,
     };
     if (needLogin.contains(route)) {
-      requireLogin(context,
-          onSuccess: () => Navigator.pushNamed(context, route));
+      requireLogin(
+        context,
+        nextRoute: route,
+        onSuccess: () => Navigator.pushNamed(context, route),
+      );
       return;
     }
     Navigator.pushNamed(context, route);
@@ -254,7 +257,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           if (isLoggedIn)
             GestureDetector(
-              onTap: () => Navigator.pushNamed(context, AppRoutes.profile),
+              onTap: () => _openRoute(AppRoutes.profile),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
                 child: CircleAvatar(
@@ -732,39 +735,22 @@ class _ReviewsSection extends StatelessWidget {
           ),
 
           const SizedBox(height: 12),
-          Row(children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => onTap(AppRoutes.reviews),
-                icon: const Icon(Icons.rate_review_outlined, size: 16),
-                label: Text(s.viewAllReviews,
-                    style: const TextStyle(fontSize: 12)),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.orange[700],
-                  side: BorderSide(color: Colors.orange.shade300),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                ),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => onTap(AppRoutes.reviews),
+              icon: const Icon(Icons.rate_review_outlined, size: 16),
+              label:
+                  Text(s.viewAllReviews, style: const TextStyle(fontSize: 12)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.orange[700],
+                side: BorderSide(color: Colors.orange.shade300),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
               ),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: () => onTap(AppRoutes.reviews),
-                icon: const Icon(Icons.edit_outlined, size: 16),
-                label:
-                    Text(s.writeReview, style: const TextStyle(fontSize: 12)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange[700],
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                ),
-              ),
-            ),
-          ]),
+          ),
         ],
       ),
     );

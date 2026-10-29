@@ -345,13 +345,8 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
           children: [
             if (nearby.isEmpty && _userPos != null)
               _noneNearbyBanner('vendor', outside),
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: nearby.length,
-              itemBuilder: (_, i) => _vendorCard(nearby[i]),
-            ),
+
+            // If the user's location is unavailable, show every approved vendor.
             if (_userPos == null)
               ListView.builder(
                 shrinkWrap: true,
@@ -360,8 +355,35 @@ class _DropoffPointsScreenState extends State<DropoffPointsScreen> {
                 itemCount: withDist.length,
                 itemBuilder: (_, i) => _vendorCard(withDist[i]),
               ),
-            if (noCoords.isNotEmpty && _userPos != null) ...[
-              _subLabel('Other vendors (no location data)'),
+
+            // With GPS, show nearby vendors first.
+            if (_userPos != null)
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: nearby.length,
+                itemBuilder: (_, i) => _vendorCard(nearby[i]),
+              ),
+
+            // IMPORTANT: Do not hide approved vendors just because they are
+            // beyond the selected radius. Show them in a separate section.
+            if (_userPos != null && outside.isNotEmpty) ...[
+              _subLabel(
+                  'Other approved vendors outside ${_radiusKm.toStringAsFixed(0)} km'),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: outside.length,
+                itemBuilder: (_, i) => _vendorCard(outside[i]),
+              ),
+            ],
+
+            // Vendors whose coordinates are missing/invalid still remain
+            // visible, so their address can be used to open Maps.
+            if (_userPos != null && noCoords.isNotEmpty) ...[
+              _subLabel('Approved vendors without GPS coordinates'),
               ListView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),

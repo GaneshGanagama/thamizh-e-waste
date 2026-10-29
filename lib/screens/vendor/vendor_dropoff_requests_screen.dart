@@ -28,31 +28,36 @@ class VendorDropoffRequestsScreen extends StatelessWidget {
           }
           final docs = snap.data?.docs ?? [];
           if (docs.isEmpty) {
-            return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            return Center(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
               Icon(Icons.inbox, size: 56, color: Colors.grey[300]),
               const SizedBox(height: 12),
-              Text('No drop-off requests assigned', style: TextStyle(color: Colors.grey[500])),
+              Text('No drop-off requests assigned',
+                  style: TextStyle(color: Colors.grey[500])),
             ]));
           }
           return ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: docs.length,
             itemBuilder: (_, i) {
-              final data   = docs[i].data() as Map<String, dynamic>;
-              final name   = data['userName'] ?? 'User';
-              final status = data['status']   ?? 'Pending';
+              final data = docs[i].data() as Map<String, dynamic>;
+              final name = data['userName'] ?? 'User';
+              final status = data['status'] ?? 'Pending';
               return Card(
                 margin: const EdgeInsets.only(bottom: 10),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
                 child: ListTile(
                   leading: const Icon(Icons.move_to_inbox, color: Colors.teal),
-                  title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  title: Text(name,
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: Text('Status: $status'),
                   trailing: status != 'Collected'
                       ? TextButton(
                           onPressed: () async {
                             await FirebaseFirestore.instance
-                                .collection('donations').doc(docs[i].id)
+                                .collection('donations')
+                                .doc(docs[i].id)
                                 .update({'status': 'Collected'});
                           },
                           child: const Text('Mark Collected'),

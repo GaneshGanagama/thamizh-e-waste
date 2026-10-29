@@ -1,678 +1,601 @@
-// lib/screens/user/certificates_screen.dart
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:pdf/pdf.dart';
-import 'package:printing/printing.dart';
+import 'package:flutter/material.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CERTIFICATES SCREEN
-//
-// Logic:
-//  • Every completed pickup_request gives the user ONE certificate immediately
-//  • Each certificate is for that specific request (date, items, kg, reward)
-//  • User can download/share any certificate as a PDF
-//  • Milestone badges (Bronze/Silver/Gold) are shown as bonus achievements
-//    based on total recycled kg — but do NOT block the basic certificate
-// ─────────────────────────────────────────────────────────────────────────────
-
-class CertificatesScreen extends StatelessWidget {
+class CertificatesScreen extends StatefulWidget {
   const CertificatesScreen({super.key});
 
-  // ── Build PDF for a single completed request ──────────────────────────────
-  pw.Document _buildPdf({
-    required String userName,
-    required String userEmail,
-    required String requestId,
-    required String dateStr,
-    required double totalKg,
-    required double reward,
-    required List<String> itemLines,
-  }) {
-    final pdf = pw.Document();
-    final issuedOn = DateFormat('dd MMMM yyyy').format(DateTime.now());
-    final displayName = userName.isNotEmpty ? userName : userEmail;
+  @override
+  State<CertificatesScreen> createState() => _CertificatesScreenState();
+}
 
-    pdf.addPage(pw.Page(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(40),
-      build: (ctx) => pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.center,
-        children: [
-          // Header bar
-          pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.symmetric(vertical: 14),
-            decoration: const pw.BoxDecoration(color: PdfColors.green800),
-            child: pw.Text(
-              'CERTIFICATE OF E-WASTE RECYCLING',
-              textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(
-                fontSize: 20,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColors.white,
-              ),
-            ),
-          ),
-          pw.SizedBox(height: 28),
+class _CertificatesScreenState extends State<CertificatesScreen> {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-          pw.Text('This is to certify that',
-              style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
-          pw.SizedBox(height: 10),
+  final TextEditingController _searchController = TextEditingController();
 
-          // User name
-          pw.Text(
-            displayName,
-            style: pw.TextStyle(
-              fontSize: 24,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColors.green900,
-            ),
-          ),
-          pw.SizedBox(height: 6),
-          pw.Text(userEmail,
-              style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey600)),
-          pw.SizedBox(height: 20),
+  bool _loading = true;
+  String? _error;
 
-          pw.Text(
-            'has successfully recycled e-waste through Ecomeel.',
-            textAlign: pw.TextAlign.center,
-            style: const pw.TextStyle(fontSize: 14),
-          ),
-          pw.SizedBox(height: 24),
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _certificates = [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filtered = [];
 
-          // Details box
-          pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.all(16),
-            decoration: pw.BoxDecoration(
-              color: PdfColors.green50,
-              border: pw.Border.all(color: PdfColors.green200),
-              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
-            ),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                _pdfRow('Request ID', requestId),
-                _pdfRow('Date of Pickup', dateStr),
-                _pdfRow('Total Weight', '${totalKg.toStringAsFixed(1)} kg'),
-                _pdfRow('Estimated Reward', '₹${reward.toStringAsFixed(0)}'),
-                if (itemLines.isNotEmpty)
-                  _pdfRow('Items', itemLines.join(', ')),
-              ],
-            ),
-          ),
-          pw.SizedBox(height: 28),
-
-          pw.Text(
-            'Thank you for contributing to a cleaner, greener planet.',
-            textAlign: pw.TextAlign.center,
-            style: pw.TextStyle(
-              fontSize: 13,
-              fontStyle: pw.FontStyle.italic,
-              color: PdfColors.grey700,
-            ),
-          ),
-          pw.SizedBox(height: 40),
-
-          // Footer
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                pw.Text('Issued on: $issuedOn',
-                    style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
-                pw.Text('Ecomeel — Thamizh E-Waste Pvt. Ltd.',
-                    style: pw.TextStyle(
-                        fontSize: 11,
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.green800)),
-              ]),
-              pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
-                pw.Text('____________________',
-                    style: const pw.TextStyle(color: PdfColors.grey600)),
-                pw.Text('Authorized Signature',
-                    style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
-              ]),
-            ],
-          ),
-        ],
-      ),
-    ));
-    return pdf;
-  }
-
-  pw.Widget _pdfRow(String label, String value) => pw.Padding(
-    padding: const pw.EdgeInsets.only(bottom: 6),
-    child: pw.Row(children: [
-      pw.SizedBox(
-        width: 120,
-        child: pw.Text('$label:',
-            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-      ),
-      pw.Expanded(
-        child: pw.Text(value,
-            style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey800)),
-      ),
-    ]),
-  );
-
-  // ── Download a single request certificate ──────────────────────────────────
-  Future<void> _download(BuildContext context, Map<String, dynamic> data, String docId) async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      final items = (data['items'] as List<dynamic>? ?? []);
-      double totalKg = 0;
-      final itemLines = <String>[];
-      for (final it in items) {
-        final w = (it['weight'] as num? ?? 0).toDouble();
-        totalKg += w;
-        itemLines.add('${it['wasteType']} (${w}kg)');
-      }
-
-      final ts = data['timestamp'];
-      String dateStr = 'N/A';
-      if (ts is Timestamp) {
-        dateStr = DateFormat('dd MMM yyyy').format(ts.toDate());
-      }
-
-      final pdf = _buildPdf(
-        userName:   user?.displayName ?? '',
-        userEmail:  user?.email ?? '',
-        requestId:  docId.substring(0, 8).toUpperCase(),
-        dateStr:    dateStr,
-        totalKg:    totalKg,
-        reward:     (data['totalReward'] as num? ?? 0).toDouble(),
-        itemLines:  itemLines,
-      );
-
-      final bytes = await pdf.save();
-      await Printing.layoutPdf(onLayout: (_) async => bytes);
-    } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Download failed: $e')));
-    }
-  }
-
-  Future<void> _share(BuildContext context, Map<String, dynamic> data, String docId) async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      final items = (data['items'] as List<dynamic>? ?? []);
-      double totalKg = 0;
-      final itemLines = <String>[];
-      for (final it in items) {
-        final w = (it['weight'] as num? ?? 0).toDouble();
-        totalKg += w;
-        itemLines.add('${it['wasteType']} (${w}kg)');
-      }
-      final ts = data['timestamp'];
-      String dateStr = 'N/A';
-      if (ts is Timestamp) {
-        dateStr = DateFormat('dd MMM yyyy').format(ts.toDate());
-      }
-      final pdf = _buildPdf(
-        userName:  user?.displayName ?? '',
-        userEmail: user?.email ?? '',
-        requestId: docId.substring(0, 8).toUpperCase(),
-        dateStr:   dateStr,
-        totalKg:   totalKg,
-        reward:    (data['totalReward'] as num? ?? 0).toDouble(),
-        itemLines: itemLines,
-      );
-      final bytes = await pdf.save();
-      await Printing.sharePdf(
-        bytes: bytes,
-        filename: 'ecomeel_certificate_${docId.substring(0, 8)}.pdf',
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Share failed: $e')));
-    }
+  @override
+  void initState() {
+    super.initState();
+    _loadCertificates();
+    _searchController.addListener(_filterCertificates);
   }
 
   @override
-  Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      return const Scaffold(
-          body: Center(child: Text('Please log in to view certificates')));
-    }
-
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('My Certificates'),
-          backgroundColor: Colors.green[700],
-          foregroundColor: Colors.white,
-          bottom: const TabBar(
-            indicatorColor: Colors.white,
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white70,
-            tabs: [
-              Tab(text: 'My Pickups', icon: Icon(Icons.receipt_long, size: 18)),
-              Tab(text: 'Milestones', icon: Icon(Icons.emoji_events, size: 18)),
-            ],
-          ),
-        ),
-        body: TabBarView(children: [
-          _buildPickupCertificates(context, user),
-          _buildMilestoneCertificates(context, user),
-        ]),
-      ),
-    );
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
-  // ── Tab 1: One certificate per completed pickup ────────────────────────────
-  Widget _buildPickupCertificates(BuildContext context, User user) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('pickup_requests')
-          .where('userId', isEqualTo: user.uid)
-          .where('status', isEqualTo: 'Completed')
-          .orderBy('timestamp', descending: true)
-          .snapshots(),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+  // ============================================================
+  // LOAD
+  // ============================================================
 
-        final docs = snap.data?.docs ?? [];
+  Future<void> _loadCertificates() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
-        if (docs.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
+    try {
+      final snapshot = await _firestore
+          .collection('certificates')
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      if (!mounted) return;
+
+      setState(() {
+        _certificates = snapshot.docs;
+        _filtered = snapshot.docs;
+        _loading = false;
+      });
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _loading = false;
+        _error = _firebaseError(e);
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _loading = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  // ============================================================
+  // SEARCH
+  // ============================================================
+
+  void _filterCertificates() {
+    final query = _searchController.text.trim().toLowerCase();
+
+    if (query.isEmpty) {
+      setState(() {
+        _filtered = _certificates;
+      });
+      return;
+    }
+
+    setState(() {
+      _filtered = _certificates.where((doc) {
+        final data = doc.data();
+
+        final certificateId =
+            (data['certificateId'] ?? doc.id).toString().toLowerCase();
+
+        final userName =
+            (data['userName'] ?? data['name'] ?? '').toString().toLowerCase();
+
+        final email = (data['email'] ?? '').toString().toLowerCase();
+
+        final userId = (data['userId'] ?? '').toString().toLowerCase();
+
+        return certificateId.contains(query) ||
+            userName.contains(query) ||
+            email.contains(query) ||
+            userId.contains(query);
+      }).toList();
+    });
+  }
+
+  // ============================================================
+  // VIEW CERTIFICATE
+  // ============================================================
+
+  void _viewCertificate(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(
+                Icons.verified,
+                color: Colors.green,
+              ),
+              SizedBox(width: 10),
+              Text('Certificate Details'),
+            ],
+          ),
+          content: SizedBox(
+            width: 500,
+            child: SingleChildScrollView(
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.receipt_long, size: 64, color: Colors.grey[300]),
-                  const SizedBox(height: 16),
-                  Text('No completed pickups yet',
-                      style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[600])),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Once admin marks your pickup as Completed,\nyour certificate will appear here.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                  _detail(
+                    'Certificate ID',
+                    (data['certificateId'] ?? doc.id).toString(),
+                  ),
+                  _detail(
+                    'User',
+                    (data['userName'] ?? data['name'] ?? 'Unknown').toString(),
+                  ),
+                  _detail(
+                    'Email',
+                    (data['email'] ?? 'Not available').toString(),
+                  ),
+                  _detail(
+                    'User ID',
+                    (data['userId'] ?? 'Not available').toString(),
+                  ),
+                  _detail(
+                    'Total Recycled',
+                    '${data['totalKg'] ?? data['weight'] ?? 0} kg',
+                  ),
+                  _detail(
+                    'Reward',
+                    '${data['totalReward'] ?? data['reward'] ?? 0}',
+                  ),
+                  _detail(
+                    'Status',
+                    (data['status'] ?? 'valid').toString(),
+                  ),
+                  _detail(
+                    'Created',
+                    _formatDate(data['createdAt'] ?? data['date']),
                   ),
                 ],
               ),
             ),
-          );
-        }
-
-        return ListView.separated(
-          padding: const EdgeInsets.all(16),
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemCount: docs.length,
-          itemBuilder: (context, i) {
-            final doc  = docs[i];
-            final data = doc.data() as Map<String, dynamic>;
-
-            final ts = data['timestamp'];
-            String dateStr = 'N/A';
-            if (ts is Timestamp) {
-              dateStr = DateFormat('dd MMM yyyy').format(ts.toDate());
-            }
-
-            final items = (data['items'] as List<dynamic>? ?? []);
-            double totalKg = 0;
-            for (final it in items) {
-              totalKg += (it['weight'] as num? ?? 0).toDouble();
-            }
-            final reward = (data['totalReward'] as num? ?? 0).toDouble();
-            final shortId = doc.id.substring(0, 8).toUpperCase();
-
-            return Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14)),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.green[50],
-                          shape: BoxShape.circle,
-                        ),
-                        child:
-                            Icon(Icons.verified, color: Colors.green[700], size: 28),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Certificate #$shortId',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold, fontSize: 15)),
-                            Text(dateStr,
-                                style: TextStyle(
-                                    color: Colors.grey[600], fontSize: 12)),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.green[100],
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text('Completed',
-                            style: TextStyle(
-                                color: Colors.green[800],
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold)),
-                      ),
-                    ]),
-                    const SizedBox(height: 12),
-                    const Divider(height: 1),
-                    const SizedBox(height: 10),
-                    Row(children: [
-                      _statChip(Icons.scale, '${totalKg.toStringAsFixed(1)} kg',
-                          Colors.blue),
-                      const SizedBox(width: 8),
-                      _statChip(Icons.currency_rupee,
-                          '₹${reward.toStringAsFixed(0)}', Colors.orange),
-                      const SizedBox(width: 8),
-                      _statChip(Icons.inventory_2,
-                          '${items.length} item${items.length == 1 ? "" : "s"}',
-                          Colors.purple),
-                    ]),
-                    const SizedBox(height: 14),
-                    Row(children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _share(context, data, doc.id),
-                          icon: const Icon(Icons.share, size: 16),
-                          label: const Text('Share'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.blue,
-                            side: const BorderSide(color: Colors.blue),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _download(context, data, doc.id),
-                          icon: const Icon(Icons.download, size: 16),
-                          label: const Text('Download'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green[700],
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ]),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _statChip(IconData icon, String label, Color color) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    decoration: BoxDecoration(
-      color: color.withOpacity(0.1),
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: Row(mainAxisSize: MainAxisSize.min, children: [
-      Icon(icon, size: 12, color: color),
-      const SizedBox(width: 4),
-      Text(label,
-          style: TextStyle(
-              fontSize: 12, color: color, fontWeight: FontWeight.w600)),
-    ]),
-  );
-
-  // ── Tab 2: Milestone certificates (Bronze/Silver/Gold) ─────────────────────
-  Widget _buildMilestoneCertificates(BuildContext context, User user) {
-    return FutureBuilder<QuerySnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('pickup_requests')
-          .where('userId', isEqualTo: user.uid)
-          .where('status', isEqualTo: 'Completed')
-          .get(),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        double totalKg = 0;
-        if (snap.hasData) {
-          for (final doc in snap.data!.docs) {
-            final data = doc.data() as Map<String, dynamic>;
-            for (final it in (data['items'] as List<dynamic>? ?? [])) {
-              totalKg += (it['weight'] as num? ?? 0).toDouble();
-            }
-          }
-        }
-
-        const milestones = [
-          {'level': 'Bronze', 'kg': 10,  'icon': '🥉', 'color': 0xFF8D6E63},
-          {'level': 'Silver', 'kg': 25,  'icon': '🥈', 'color': 0xFF78909C},
-          {'level': 'Gold',   'kg': 50,  'icon': '🥇', 'color': 0xFFFFA000},
-          {'level': 'Green Hero', 'kg': 100, 'icon': '🌍', 'color': 0xFF2E7D32},
-        ];
-
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.green[50],
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.green.shade200),
-              ),
-              child: Row(children: [
-                Icon(Icons.recycling, color: Colors.green[700], size: 28),
-                const SizedBox(width: 12),
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Total Recycled',
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.green[700])),
-                  Text('${totalKg.toStringAsFixed(1)} kg',
-                      style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green[800])),
-                ]),
-              ]),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
             ),
-            const SizedBox(height: 16),
-            ...milestones.map((m) {
-              final req      = m['kg'] as int;
-              final level    = m['level'] as String;
-              final emoji    = m['icon'] as String;
-              final color    = Color(m['color'] as int);
-              final unlocked = totalKg >= req;
-              final progress = (totalKg / req).clamp(0.0, 1.0);
-
-              return Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Text(emoji, style: const TextStyle(fontSize: 32)),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('$level Certificate',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                      color: unlocked ? color : Colors.grey[700])),
-                              Text('Recycle $req kg to unlock',
-                                  style: TextStyle(
-                                      fontSize: 12, color: Colors.grey[500])),
-                            ],
-                          ),
-                        ),
-                        if (unlocked)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: color.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text('Unlocked',
-                                style: TextStyle(
-                                    color: color,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold)),
-                          ),
-                      ]),
-                      const SizedBox(height: 10),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: LinearProgressIndicator(
-                          value: progress,
-                          minHeight: 7,
-                          backgroundColor: Colors.grey[200],
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                              unlocked ? color : Colors.grey.shade400),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        unlocked
-                            ? '${totalKg.toStringAsFixed(1)} / $req kg ✓'
-                            : '${totalKg.toStringAsFixed(1)} / $req kg  (${(req - totalKg).toStringAsFixed(1)} kg to go)',
-                        style: TextStyle(
-                            fontSize: 11,
-                            color: unlocked ? color : Colors.grey[500]),
-                      ),
-                      if (unlocked) ...[
-                        const SizedBox(height: 12),
-                        Row(children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () async {
-                                try {
-                                  final u = FirebaseAuth.instance.currentUser;
-                                  final pdf = _buildMilestonePdf(
-                                    level: level,
-                                    kg: totalKg.toInt(),
-                                    userName: u?.displayName ?? '',
-                                    userEmail: u?.email ?? '',
-                                  );
-                                  final bytes = await pdf.save();
-                                  await Printing.layoutPdf(
-                                      onLayout: (_) async => bytes);
-                                } catch (e) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Error: $e')));
-                                }
-                              },
-                              icon: const Icon(Icons.download, size: 16),
-                              label: const Text('Download'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: color,
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ]),
-                      ],
-                    ],
-                  ),
-                ),
-              );
-            }),
           ],
         );
       },
     );
   }
 
-  pw.Document _buildMilestonePdf({
-    required String level,
-    required int kg,
-    required String userName,
-    required String userEmail,
-  }) {
-    final pdf = pw.Document();
-    final issuedOn = DateFormat('dd MMMM yyyy').format(DateTime.now());
-    final displayName = userName.isNotEmpty ? userName : userEmail;
+  // ============================================================
+  // HELPERS
+  // ============================================================
 
-    pdf.addPage(pw.Page(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(40),
-      build: (ctx) => pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.center,
-        mainAxisAlignment: pw.MainAxisAlignment.center,
+  Widget _detail(String title, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.symmetric(vertical: 16),
-            decoration: const pw.BoxDecoration(color: PdfColors.green800),
-            child: pw.Text(
-              '$level RECYCLER CERTIFICATE',
-              textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(
-                  fontSize: 22, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          pw.SizedBox(height: 40),
-          pw.Text('This certifies that',
-              style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
-          pw.SizedBox(height: 12),
-          pw.Text(displayName,
-              style: pw.TextStyle(
-                  fontSize: 26, fontWeight: pw.FontWeight.bold, color: PdfColors.green900)),
-          pw.SizedBox(height: 8),
-          pw.Text(userEmail,
-              style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey600)),
-          pw.SizedBox(height: 24),
-          pw.Text(
-            'has achieved the $level milestone by recycling $kg kg of e-waste\nthrough Ecomeel — Thamizh E-Waste Pvt. Ltd.',
-            textAlign: pw.TextAlign.center,
-            style: const pw.TextStyle(fontSize: 15),
+          const SizedBox(height: 3),
+          SelectableText(
+            value,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-          pw.SizedBox(height: 40),
-          pw.Text('Issued on $issuedOn',
-              style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey600)),
-          pw.SizedBox(height: 60),
-          pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-            pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-              pw.Text('Ecomeel — Thamizh E-Waste Pvt. Ltd.',
-                  style: pw.TextStyle(
-                      fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
-            ]),
-            pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
-              pw.Text('____________________'),
-              pw.Text('Authorized Signature',
-                  style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
-            ]),
-          ]),
         ],
       ),
-    ));
-    return pdf;
+    );
+  }
+
+  String _formatDate(dynamic value) {
+    if (value == null) return 'Not available';
+
+    if (value is Timestamp) {
+      final date = value.toDate();
+
+      return '${date.day.toString().padLeft(2, '0')}/'
+          '${date.month.toString().padLeft(2, '0')}/'
+          '${date.year}';
+    }
+
+    return value.toString();
+  }
+
+  String _firebaseError(FirebaseException e) {
+    switch (e.code) {
+      case 'permission-denied':
+        return 'Permission denied. Please check the Firestore rules '
+            'for the certificates collection.';
+      case 'failed-precondition':
+        return 'Firestore needs an index for this query.';
+      case 'unavailable':
+        return 'Firebase is temporarily unavailable. '
+            'Check your internet connection and try again.';
+      default:
+        return e.message ?? 'Unable to load certificates.';
+    }
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F7F7),
+      body: Column(
+        children: [
+          _buildHeader(),
+          Expanded(
+            child: _buildBody(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // HEADER
+  // ============================================================
+
+  Widget _buildHeader() {
+    return Container(
+      height: 72,
+      padding: const EdgeInsets.symmetric(horizontal: 22),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          bottom: BorderSide(
+            color: Color(0xFFE5E5E5),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.picture_as_pdf,
+            color: Color(0xFF2E8B3C),
+            size: 30,
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Certificates',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF2E8B3C),
+              ),
+            ),
+          ),
+
+          // REFRESH
+          Tooltip(
+            message: 'Refresh certificates',
+            child: IconButton(
+              onPressed: _loading ? null : _loadCertificates,
+              icon: const Icon(Icons.refresh),
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          // ADMIN
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 8,
+            ),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8F5E9),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Row(
+              children: [
+                Icon(
+                  Icons.admin_panel_settings,
+                  size: 19,
+                  color: Color(0xFF2E8B3C),
+                ),
+                SizedBox(width: 6),
+                Text(
+                  'Admin',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF2E8B3C),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // BODY
+  // ============================================================
+
+  Widget _buildBody() {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          _buildSearch(),
+          const SizedBox(height: 18),
+          Expanded(
+            child: _buildCertificateContent(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // SEARCH
+  // ============================================================
+
+  Widget _buildSearch() {
+    return TextField(
+      controller: _searchController,
+      decoration: InputDecoration(
+        hintText: 'Search certificate ID, user name, email...',
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon: _searchController.text.isNotEmpty
+            ? IconButton(
+                tooltip: 'Clear search',
+                onPressed: () {
+                  _searchController.clear();
+                },
+                icon: const Icon(Icons.clear),
+              )
+            : null,
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // CONTENT
+  // ============================================================
+
+  Widget _buildCertificateContent() {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 500),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.cloud_off,
+                size: 50,
+                color: Colors.orange,
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Unable to load certificates',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 18),
+              ElevatedButton.icon(
+                onPressed: _loadCertificates,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_filtered.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.description_outlined,
+              size: 64,
+              color: Colors.grey.shade400,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _certificates.isEmpty
+                  ? 'No certificates found'
+                  : 'No certificates match your search',
+              style: TextStyle(
+                fontSize: 17,
+                color: Colors.grey.shade700,
+              ),
+            ),
+            if (_certificates.isEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Certificates will appear here after completed recycling requests.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    return _buildTable();
+  }
+
+  // ============================================================
+  // TABLE
+  // ============================================================
+
+  Widget _buildTable() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          columnSpacing: 28,
+          headingRowColor: WidgetStateProperty.all(
+            const Color(0xFFE8F5E9),
+          ),
+          columns: const [
+            DataColumn(label: Text('Certificate ID')),
+            DataColumn(label: Text('User')),
+            DataColumn(label: Text('Email')),
+            DataColumn(label: Text('Weight')),
+            DataColumn(label: Text('Status')),
+            DataColumn(label: Text('Date')),
+            DataColumn(label: Text('Actions')),
+          ],
+          rows: _filtered.map((doc) {
+            final data = doc.data();
+
+            final certificateId = (data['certificateId'] ?? doc.id).toString();
+
+            final userName =
+                (data['userName'] ?? data['name'] ?? 'Unknown').toString();
+
+            final email = (data['email'] ?? '-').toString();
+
+            final weight = '${data['totalKg'] ?? data['weight'] ?? 0} kg';
+
+            final status = (data['status'] ?? 'valid').toString();
+
+            final date = _formatDate(data['createdAt'] ?? data['date']);
+
+            return DataRow(
+              cells: [
+                DataCell(
+                  SelectableText(
+                    certificateId,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                DataCell(Text(userName)),
+                DataCell(Text(email)),
+                DataCell(Text(weight)),
+                DataCell(_statusChip(status)),
+                DataCell(Text(date)),
+                DataCell(
+                  IconButton(
+                    tooltip: 'View certificate',
+                    onPressed: () => _viewCertificate(doc),
+                    icon: const Icon(Icons.visibility_outlined),
+                  ),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _statusChip(String status) {
+    final normalized = status.toLowerCase();
+
+    Color background;
+    Color foreground;
+
+    if (normalized == 'valid' ||
+        normalized == 'approved' ||
+        normalized == 'completed') {
+      background = Colors.green.shade100;
+      foreground = Colors.green.shade800;
+    } else if (normalized == 'pending') {
+      background = Colors.orange.shade100;
+      foreground = Colors.orange.shade800;
+    } else {
+      background = Colors.grey.shade200;
+      foreground = Colors.grey.shade800;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 5,
+      ),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        status,
+        style: TextStyle(
+          color: foreground,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
   }
 }

@@ -1,89 +1,322 @@
+
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // USERS collection
+    // ---------- COMMON HELPERS ----------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && request.auth.token.admin == true;
+    }
+
+    function isOwner(userId) {
+      return signedIn()
+        && request.auth.uid == userId;
+    }
+
+    function validOwnerCreate() {
+      return signedIn()
+        && request.resource.data.userId == request.auth.uid;
+    }
+
+    // ---------- USERS ----------
+
     match /users/{userId} {
-      // Users can read & update only their own profile
-      allow read, update: if request.auth != null && request.auth.uid == userId;
+      allow create: if isOwner(userId);
+      allow read: if isOwner(userId) || isAdmin();
 
-      // Users can create their profile when signing up
-      allow create: if request.auth != null && request.auth.uid == userId;
+      // Users can update their own profile, but cannot change
+      // protected role/reward fields through this permission.
+      allow update: if isAdmin()
+        || (
+          isOwner(userId)
+          && request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasOnly([
+                 'name',
+                 'email',
+                 'phone',
+                 'address',
+                 'photoUrl',
+                 'profileImage',
+                 'updatedAt'
+               ])
+        );
 
-      // Admins can do anything
-      allow read, write: if request.auth != null && request.auth.token.admin == true;
+      allow delete: if isAdmin();
     }
 
-    // PICKUP REQUESTS
+    // ---------- PICKUP REQUESTS ----------
+
     match /pickup_requests/{requestId} {
-      // Users can create their own requests
-      allow create: if request.auth != null &&
-                    request.resource.data.userId == request.auth.uid;
+      allow create: if validOwnerCreate();
 
-      // Users can only see/update their own requests
-      allow read, update, delete: if request.auth != null &&
-                                  request.auth.uid == resource.data.userId;
+      allow read: if isAdmin()
+        || (signedIn()
+            && resource.data.userId == request.auth.uid)
+        || (signedIn()
+            && resource.data.assignedTo == request.auth.uid);
 
-      // Admins can see and manage all requests
-      allow read, update, delete: if request.auth != null &&
-                                  request.auth.token.admin == true;
+      // Request owners can edit only non-sensitive request details.
+      allow update: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasOnly([
+                 'address',
+                 'phone',
+                 'notes',
+                 'updatedAt'
+               ])
+        )
+        // Assigned vendors may mark their pickup as collected.
+        || (
+          signedIn()
+          && resource.data.assignedTo == request.auth.uid
+          && request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasOnly(['status'])
+          && request.resource.data.status == 'Collected'
+        );
+
+      allow delete: if isAdmin()
+        || (signedIn()
+            && resource.data.userId == request.auth.uid
+            && resource.data.status == 'Pending');
     }
 
-    // SCRAP PRICES (admin only)
-    match /scrap_prices/{docId} {
-      allow read: if true; // users can read
-      allow write: if request.auth != null && request.auth.token.admin == true;
+    // ---------- DONATIONS ----------
+
+    match /donations/{donationId} {
+      allow create: if validOwnerCreate();
+
+      allow read: if isAdmin()
+        || (signedIn()
+            && resource.data.userId == request.auth.uid)
+        || (signedIn()
+            && resource.data.assignedVendorId == request.auth.uid);
+
+      allow update: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasOnly([
+                 'address',
+                 'phone',
+                 'notes',
+                 'updatedAt'
+               ])
+        )
+        // Vendor confirmation only; does not grant reward access.
+        || (
+          signedIn()
+          && resource.data.assignedVendorId == request.auth.uid
+          && request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasOnly(['status'])
+          && request.resource.data.status == 'Collected'
+        );
+
+      allow delete: if isAdmin();
     }
 
-    // BANNERS (admin only)
-    match /banners/{docId} {
+    // ---------- VENDOR APPLICATIONS ----------
+
+    match /vendor_requests/{requestId} {
+      allow create: if validOwnerCreate();
+
+      // Applicants can query their own requests using userId.
+      allow read: if isAdmin()
+        || (signedIn()
+            && resource.data.userId == request.auth.uid);
+
+      // Application decisions are admin-controlled.
+      allow update, delete: if isAdmin();
+    }
+
+    // ---------- VENDORS ----------
+
+    match /vendors/{vendorId} {
+      // Existing app uses public vendor lists and drop-off details.
       allow read: if true;
-      allow write: if request.auth != null && request.auth.token.admin == true;
+
+      // Admin controls vendor approval and assignments.
+      allow create, delete: if isAdmin();
+
+      allow update: if isAdmin()
+        || (
+          isOwner(vendorId)
+          && request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasOnly([
+                 'phone',
+                 'address',
+                 'latitude',
+                 'longitude',
+                 'photoUrl',
+                 'updatedAt'
+               ])
+        );
     }
 
-    // ANNOUNCEMENTS (admin only to write, public read)
-    match /info_posts/{docId} {
+    // ---------- VENDOR HISTORY ----------
+
+    match /vendor_history/{historyId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ---------- REQUEST HISTORY ----------
+
+    match /request_history/{historyId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ---------- DONATION HISTORY ----------
+
+    match /donation_history/{historyId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ---------- ADMIN NOTIFICATIONS ----------
+
+    match /admin_notifications/{notificationId} {
+      // Admins alone can read and manage notifications.
+      allow read, update, delete: if isAdmin();
+
+      // The current app creates notifications from signed-in
+      // user actions. Limit creation to expected notification fields.
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'type',
+          'title',
+          'body',
+          'read',
+          'timestamp',
+          'createdAt',
+          'userId',
+          'requestId',
+          'donationId'
+        ])
+        && request.resource.data.type in [
+          'new_pickup',
+          'new_donation'
+        ]
+        && request.resource.data.read == false
+        && (
+          !('userId' in request.resource.data)
+          || request.resource.data.userId == request.auth.uid
+        );
+    }
+
+    // ---------- CERTIFICATES ----------
+
+    match /certificates/{certificateId} {
+      // Existing certificate management screen is admin-only.
+      allow read, write: if isAdmin();
+    }
+
+    // ---------- DROP-OFF POINTS ----------
+
+    match /dropoffs/{dropoffId} {
       allow read: if true;
-      allow write: if request.auth != null && request.auth.token.admin == true;
+      allow write: if isAdmin();
     }
 
-    // AWARENESS POSTS
-    match /awareness_posts/{docId} {
+    // ---------- SCRAP PRICES ----------
+
+    match /scrap_prices/{priceId} {
       allow read: if true;
-      allow write: if request.auth != null && request.auth.token.admin == true;
+      allow write: if isAdmin();
     }
 
-    // VENDORS
-    match /vendor_requests/{docId} {
-      allow create: if request.auth != null; // users can request
-      allow read, update, delete: if request.auth != null && request.auth.token.admin == true;
-    }
-    match /vendors/{docId} {
+    // ---------- BANNERS ----------
+
+    match /banners/{bannerId} {
       allow read: if true;
-      allow write: if request.auth != null && request.auth.token.admin == true;
-    }
-    match /vendor_history/{docId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
-      allow write: if request.auth != null && request.auth.token.admin == true;
+      allow write: if isAdmin();
     }
 
-    // CERTIFICATES (admin only)
-    match /certificates/{docId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
-      allow write: if request.auth != null && request.auth.token.admin == true;
-    }
+    // ---------- ANNOUNCEMENTS ----------
 
-    // DROP POINTS
-    match /dropoffs/{docId} {
-      allow read: if true; // everyone can see
-      allow write: if request.auth != null && request.auth.token.admin == true;
-    }
-
-    // IMPACT SETTINGS
-    match /settings/{docId} {
+    match /info_posts/{postId} {
       allow read: if true;
-      allow write: if request.auth != null && request.auth.token.admin == true;
+      allow write: if isAdmin();
     }
+
+    // ---------- AWARENESS POSTS ----------
+
+    match /awareness_posts/{postId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ---------- ADMIN POSTS ----------
+
+    match /admin_posts/{postId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ---------- REFURBISHED ITEMS ----------
+
+    match /refurbished_items/{itemId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ---------- REVIEWS ----------
+
+    match /reviews/{reviewId} {
+      // Preserves the current app's public review streams.
+      allow read: if true;
+
+      allow create: if validOwnerCreate()
+        && request.resource.data.keys().hasAll([
+          'userId'
+        ]);
+
+      allow update: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasOnly([
+                 'rating',
+                 'comment',
+                 'updatedAt',
+                 'createdAt',
+                 'name'
+               ])
+        );
+
+      allow delete: if isAdmin()
+        || (signedIn()
+            && resource.data.userId == request.auth.uid);
+    }
+
+    // ---------- SETTINGS / IMPACT ----------
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ---------- DEFAULT DENY ----------
+
+    // No other collections or documents are accessible unless
+    // explicitly permitted above.
   }
 }
-    

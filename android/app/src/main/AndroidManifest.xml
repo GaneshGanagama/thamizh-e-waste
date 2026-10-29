@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- ✅ ADD PERMISSIONS -->
+    <!-- OK ADD PERMISSIONS -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
@@ -11,7 +11,7 @@
     <uses-permission android:name="android.permission.VIBRATE"/>
 
     <application
-        android:label="ecomeel"
+        android:label="Ecomeel"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="true"
@@ -28,25 +28,25 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- ✅ Flutter Theme -->
+            <!-- OK Flutter Theme -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
 
-            <!-- ✅ Launcher -->
+            <!-- OK Launcher -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
 
-        <!-- ✅ Required by Flutter -->
+        <!-- OK Required by Flutter -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
 
-    <!-- ✅ IMPORTANT (Android 11+) -->
+    <!-- OK IMPORTANT (Android 11+) -->
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW"/>

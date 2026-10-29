@@ -517,6 +517,13 @@ void _showVendorDetails(
   );
 }
 
+/// Converts Firestore coordinate values safely.
+double? _vendorCoordinateToDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value.trim());
+  return null;
+}
+
 /// =========================
 /// Vendor approve / reject actions
 /// =========================
@@ -528,6 +535,29 @@ class _VendorActions {
     if (userId == null || userId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Missing userId")),
+      );
+      return;
+    }
+
+    // Mandatory approval gate: never approve a vendor without valid GPS.
+    // This also blocks old requests created before the registration form fix.
+    final lat = _vendorCoordinateToDouble(data['latitude']);
+    final lng = _vendorCoordinateToDouble(data['longitude']);
+    if (lat == null ||
+        lng == null ||
+        !lat.isFinite ||
+        !lng.isFinite ||
+        lat < -90 ||
+        lat > 90 ||
+        lng < -180 ||
+        lng > 180) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Cannot approve this vendor: valid shop GPS coordinates are missing. Ask the vendor to update/resubmit their location first.",
+          ),
+          duration: Duration(seconds: 5),
+        ),
       );
       return;
     }
@@ -546,8 +576,8 @@ class _VendorActions {
         'contact': data['contact'] ?? data['phone'] ?? '',
         'address': data['address'] ?? '',
         'serviceArea': data['serviceArea'] ?? '',
-        'latitude': data['latitude'],
-        'longitude': data['longitude'],
+        'latitude': lat,
+        'longitude': lng,
         'status': 'approved',
         'approvedAt': FieldValue.serverTimestamp(),
       });

@@ -1,14 +1,12 @@
 // lib/screens/user/donate_e_waste_screen.dart
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart'
-    show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io' show Platform;
 import '../../services/cloudinary_service.dart';
 
@@ -168,6 +166,8 @@ class _DonateEWasteScreenState extends State<DonateEWasteScreen> {
   // Submit donation (writes same structure as pickup)
   // -------------------------
   Future<void> _submitDonation() async {
+    if (_submitting) return;
+
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       _showSnack('Please log in first.');
@@ -188,33 +188,34 @@ class _DonateEWasteScreenState extends State<DonateEWasteScreen> {
     try {
       String imageUrl = '';
 
-      // Upload image (if selected)
+      // Upload image (if selected). A failed optional image upload should not
+      // silently discard the donation; the donation can still be submitted.
       if (pickedImage != null && imageBytes != null) {
         final url = await _supabaseUpload(imageBytes!);
         if (url != null) imageUrl = url;
       }
 
-      // If location not captured earlier, attempt to capture now
+      // If location was not captured earlier, attempt to capture it now.
       if (locationObject == null) {
-        setState(() => _locating = true);
+        if (mounted) setState(() => _locating = true);
         final loc = await _captureLocation();
-        setState(() => _locating = false);
+        if (mounted) setState(() => _locating = false);
         if (loc != null) {
           locationObject = loc;
-          readableAddress = loc['readable'] ?? '';
+          readableAddress = (loc['readable'] ?? '').toString();
         }
       }
 
-      // Prepare Firestore document (matches pickup structure)
       final device = kIsWeb
           ? 'web'
           : (Platform.isAndroid
               ? 'android'
               : (Platform.isIOS ? 'ios' : 'unknown'));
 
-      final doc = {
+      // Keep these field names aligned with the admin and tracking screens.
+      final Map<String, dynamic> donationData = {
         'userId': user.uid,
-        'userName': user.displayName ?? '',
+        'userName': user.displayName ?? user.email?.split('@').first ?? 'User',
         'userEmail': user.email ?? '',
         'userPhone': user.phoneNumber ?? '',
         'contactPhone': contactController.text.trim(),
@@ -232,7 +233,7 @@ class _DonateEWasteScreenState extends State<DonateEWasteScreen> {
                     'longitude': currentPosition!.longitude,
                     'readable': readableAddress,
                     'mapLink':
-                        'https://www.google.com/maps/search/?api=1&query=${currentPosition!.latitude},${currentPosition!.longitude}'
+                        'https://www.google.com/maps/search/?api=1&query=${currentPosition!.latitude},${currentPosition!.longitude}',
                   }
                 : null),
         'imageUrl': imageUrl,
@@ -241,9 +242,14 @@ class _DonateEWasteScreenState extends State<DonateEWasteScreen> {
         'device': device,
       };
 
-      // Success
-      _showSnack('✅ Donation submitted. Thank you!');
-      // Optionally navigate user to donations list or clear form
+      // Save first. If Firestore rejects the write, the form stays populated.
+      await FirebaseFirestore.instance
+          .collection('donations')
+          .add(donationData);
+
+      if (!mounted) return;
+
+      _showSnack('Donation submitted. Thank you!');
       setState(() {
         pickedImage = null;
         imageBytes = null;
@@ -251,16 +257,24 @@ class _DonateEWasteScreenState extends State<DonateEWasteScreen> {
         areaController.clear();
         villageController.clear();
         districtController.clear();
-        contactController.clear();
+        // Keep the contact number populated from the signed-in account.
+        contactController.text = user.phoneNumber ?? '';
         readableAddress = '';
         locationObject = null;
+        currentPosition = null;
         _uploadProgress = 0.0;
       });
     } catch (e, st) {
       debugPrint('Donation submit error: $e\n$st');
-      _showSnack('Error submitting donation: $e');
+      if (mounted) {
+        _showSnack(
+          'Could not submit donation. Please try again. Details: $e',
+        );
+      }
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
     }
   }
 

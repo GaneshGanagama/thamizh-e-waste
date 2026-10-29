@@ -2,7 +2,7 @@ name: ecomeel
 description: "Ecomeel - E-Waste Recycling & Pickup Service."
 publish_to: 'none'
 
-version: 1.0.4+5
+version: 1.0.4+6
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -55,6 +55,7 @@ dependencies:
   # PDF & Certificates
   pdf: ^3.11.1
   printing: ^5.14.0
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

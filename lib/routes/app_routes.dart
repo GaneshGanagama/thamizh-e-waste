@@ -1,11 +1,6 @@
-// lib/routes/app_routes.dart
-// ---------------------------------------------------------------
-// FINAL PRODUCTION VERSION
-// ---------------------------------------------------------------
-
 import 'package:flutter/material.dart';
 
-// Guards
+// Route protection
 import '../constants/protected_routes.dart';
 import '../app/role_gate.dart';
 
@@ -40,18 +35,15 @@ import '../screens/admin/requests_tab.dart';
 import '../screens/admin/awareness_tab.dart';
 import '../screens/admin/banners_tab.dart';
 
-/// ---------------------------------------------------------------
-/// Route Name Constants
-/// ---------------------------------------------------------------
 class AppRoutes {
-  // Public
+  // Public routes
   static const String login = '/login';
   static const String signup = '/signup';
   static const String home = '/home';
   static const String contact = '/contact';
   static const String privacy = '/privacy';
 
-  // User Protected
+  // User routes
   static const String profile = '/profile';
   static const String pickup = '/pickup';
   static const String rewards = '/rewards';
@@ -63,32 +55,52 @@ class AppRoutes {
   static const String reviews = '/reviews';
   static const String userAwareness = '/user-awareness';
 
-  // Vendor registration (protected)
+  // Vendor application routes
   static const String vendorList = '/vendor-list';
   static const String vendorRegister = '/vendor-register';
 
-  // Vendor dashboard screens (protected)
+  // Approved vendor routes
   static const String vendorDashboard = '/vendor-dashboard';
   static const String vendorPickups = '/vendor-pickups';
   static const String vendorDropoff = '/vendor-dropoff';
   static const String vendorProfile = '/vendor-profile';
 
-  // Admin (role-gated)
+  // Admin routes
   static const String admin = '/admin';
   static const String requests = '/requests';
   static const String banners = '/banners';
   static const String awareness = '/awareness';
 }
 
-/// ---------------------------------------------------------------
-/// Route Map
-/// ---------------------------------------------------------------
+/// Reads the destination passed to login.
+///
+/// Supports both the older string argument and the map argument
+/// used by ProtectedRoute.
+String? _readNextRoute(BuildContext context) {
+  final arguments = ModalRoute.of(context)?.settings.arguments;
+
+  if (arguments is String) {
+    return arguments;
+  }
+
+  if (arguments is Map) {
+    final value = arguments['nextRoute'];
+    if (value is String && value.isNotEmpty) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
 final Map<String, WidgetBuilder> appRoutes = {
-  // ── Public ──────────────────────────────────────────────────────────────
-  AppRoutes.login: (_) => const LoginScreen(),
+  // Public
+  AppRoutes.login: (context) => LoginScreen(
+        nextRoute: _readNextRoute(context),
+      ),
+
   AppRoutes.signup: (_) => const SignUpScreen(),
 
-  // showLoginButton=true → Login button always visible for guests
   AppRoutes.home: (_) => const HomeScreen(
         isVendor: false,
         showLoginButton: true,
@@ -97,12 +109,14 @@ final Map<String, WidgetBuilder> appRoutes = {
   AppRoutes.contact: (_) => const ContactScreen(),
   AppRoutes.privacy: (_) => const PrivacyPolicyScreen(),
   AppRoutes.vendorList: (_) => const VendorListScreen(),
+
+  // These routes remain public as in your existing configuration.
   AppRoutes.track: (_) => const TrackStatusScreen(),
   AppRoutes.reviews: (_) => const ReviewsScreen(),
   AppRoutes.refurbished: (_) => const RefurbishedScreen(),
   AppRoutes.userAwareness: (_) => const UserAwarenessScreen(),
 
-  // ── User Protected ───────────────────────────────────────────────────────
+  // Signed-in user routes
   AppRoutes.profile: (_) => ProtectedRoute(
         child: const ProfileScreen(),
         nextRoute: AppRoutes.profile,
@@ -138,30 +152,45 @@ final Map<String, WidgetBuilder> appRoutes = {
         nextRoute: AppRoutes.certificates,
       ),
 
-  // ── Vendor ───────────────────────────────────────────────────────────────
+  // Approved vendor routes
   AppRoutes.vendorDashboard: (_) => ProtectedRoute(
+        requiredRole: 'vendor',
         child: const VendorDashboardScreen(),
         nextRoute: AppRoutes.vendorDashboard,
       ),
 
   AppRoutes.vendorPickups: (_) => ProtectedRoute(
+        requiredRole: 'vendor',
         child: const VendorAssignedPickupsScreen(),
         nextRoute: AppRoutes.vendorPickups,
       ),
 
   AppRoutes.vendorDropoff: (_) => ProtectedRoute(
+        requiredRole: 'vendor',
         child: const VendorDropoffRequestsScreen(),
         nextRoute: AppRoutes.vendorDropoff,
       ),
 
   AppRoutes.vendorProfile: (_) => ProtectedRoute(
+        requiredRole: 'vendor',
         child: const VendorProfileScreen(),
         nextRoute: AppRoutes.vendorProfile,
       ),
 
-  // ── Admin (role-gated) ────────────────────────────────────────────────────
-  AppRoutes.admin: (_) => RoleGate(child: const AdminDashboardScreen()),
-  AppRoutes.requests: (_) => RoleGate(child: const RequestsTab()),
-  AppRoutes.banners: (_) => RoleGate(child: const BannersTab()),
-  AppRoutes.awareness: (_) => RoleGate(child: const AwarenessTab()),
+  // Admin routes retain the existing RoleGate.
+  AppRoutes.admin: (_) => RoleGate(
+        child: const AdminDashboardScreen(),
+      ),
+
+  AppRoutes.requests: (_) => RoleGate(
+        child: const RequestsTab(),
+      ),
+
+  AppRoutes.banners: (_) => RoleGate(
+        child: const BannersTab(),
+      ),
+
+  AppRoutes.awareness: (_) => RoleGate(
+        child: const AwarenessTab(),
+      ),
 };
